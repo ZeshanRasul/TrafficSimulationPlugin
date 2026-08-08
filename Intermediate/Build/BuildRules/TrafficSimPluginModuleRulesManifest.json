@@ -1,0 +1,9 @@
+{
+	"SourceFiles": [
+		"D:\\dev\\TrafficSimulationPlugin\\TrafficSimPlugin\\Source\\TrafficSimPlugin\\TrafficSimPlugin.Build.cs",
+		"D:\\dev\\TrafficSimulationPlugin\\TrafficSimPlugin\\Plugins\\TrafficSimulation\\Source\\TrafficSimulation\\TrafficSimulation.Build.cs",
+		"D:\\dev\\TrafficSimulationPlugin\\TrafficSimPlugin\\Source\\TrafficSimPlugin.Target.cs",
+		"D:\\dev\\TrafficSimulationPlugin\\TrafficSimPlugin\\Source\\TrafficSimPluginEditor.Target.cs"
+	],
+	"EngineVersion": "5.8.1"
+}

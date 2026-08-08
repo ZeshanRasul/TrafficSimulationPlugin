@@ -1,0 +1,14 @@
+{
+	"Targets": [
+		{
+			"Name": "TrafficSimPlugin",
+			"Path": "..\\Source\\TrafficSimPlugin.Target.cs",
+			"Type": "Game"
+		},
+		{
+			"Name": "TrafficSimPluginEditor",
+			"Path": "..\\Source\\TrafficSimPluginEditor.Target.cs",
+			"Type": "Editor"
+		}
+	]
+}
