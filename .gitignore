@@ -9,6 +9,7 @@ Intermediate/
 Saved/
 .vs/
 *.sln
+*.slnx
 
 # User-specific files
 *.rsuser

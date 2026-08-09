@@ -1,22 +1,23 @@
 {
-	"FileVersion": 3,
-	"EngineAssociation": "{2B349B2A-4337-E97E-0F55-1891104DBB8B}",
-	"Category": "",
-	"Description": "",
-	"Modules": [
-		{
-			"Name": "TrafficSimPlugin",
-			"Type": "Runtime",
-			"LoadingPhase": "Default"
-		}
-	],
-	"Plugins": [
-		{
-			"Name": "ModelingToolsEditorMode",
-			"Enabled": true,
-			"TargetAllowList": [
-				"Editor"
-			]
-		}
-	]
+  "FileVersion": 3,
+  "EngineAssociation": "{2B349B2A-4337-E97E-0F55-1891104DBB8B}",
+  "Category": "",
+  "Description": "",
+  "Modules": [
+    {
+      "Name": "TrafficSimPlugin",
+      "Type": "Runtime",
+      "LoadingPhase": "Default"
+    }
+  ],
+  "Plugins": [
+    {
+      "Name": "ModelingToolsEditorMode",
+      "Enabled": true
+    }
+  ],
+  "TargetPlatforms": [],
+  "AdditionalRootDirectories": [],
+  "AdditionalPluginDirectories": [],
+  "EpicSampleNameHash": ""
 }
