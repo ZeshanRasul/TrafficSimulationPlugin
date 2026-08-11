@@ -66,9 +66,6 @@ private:
         meta = (ClampMin = "100.0", UIMin = "100.0", Units = "cm"))
     float LaneWidthCm = 350.0f;
 
-    UPROPERTY(EditAnywhere, Category = "Traffic Road")
-    bool bClosedLoop = false;
-
     UPROPERTY(EditAnywhere, Category = "Traffic Road|Debug")
     bool bDrawDebugLanes = true;
 
@@ -127,8 +124,32 @@ private:
             Units = "cm"))
     float RoadThicknessCm = 10.0f;
 
+    UPROPERTY(
+        EditAnywhere,
+        Category = "Traffic Road|Debug")
+    bool bDrawLaneDirections = true;
+
+    UPROPERTY(
+        EditAnywhere,
+        Category = "Traffic Road|Debug",
+        meta = (ClampMin = "10.0", UIMin = "10.0", Units = "cm"))
+    float DirectionArrowLengthCm = 150.0f;
+
+    UPROPERTY(
+        EditAnywhere,
+        Category = "Traffic Road|Debug",
+        meta = (ClampMin = "0.0", UIMin = "0.0", Units = "cm"))
+    float DebugHeightOffsetCm = 15.0f;
+
+    UPROPERTY(
+        EditAnywhere,
+        Category = "Traffic Road|Shape",
+        meta = (DisplayName = "Road Closed Loop"))
+    bool bClosedLoop = false;
+
     UPROPERTY(Transient)
     TArray<TObjectPtr<USplineMeshComponent>> RoadSurfaceComponents;
+
 
     void ClearRoadSurface();
     void RebuildRoadSurface();

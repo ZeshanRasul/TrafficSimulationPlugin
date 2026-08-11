@@ -40,75 +40,71 @@ bool ATrafficRoad::ShouldTickIfViewportsOnly() const
 
 void ATrafficRoad::DrawDebugLanes() const
 {
-    if (!bDrawDebugLanes || !RoadSpline || !GetWorld())
+    if (!bDrawDebugLanes || !GetWorld())
     {
         return;
     }
 
-    const float SplineLength = RoadSpline->GetSplineLength();
+    const FVector HeightOffset =
+        FVector::UpVector * DebugHeightOffsetCm;
 
-    if (SplineLength <= 0.0f)
+    for (const FTrafficLane& Lane : GeneratedLanes)
     {
-        return;
-    }
-
-    const float SafeSampleSpacing = FMath::Max(DebugSampleSpacingCm, 10.0f);
-
-    const int32 SegmentCount = FMath::Max(
-        1,
-        FMath::CeilToInt(SplineLength / SafeSampleSpacing));
-
-    for (int32 LaneIndex = 0; LaneIndex < LaneCount; ++LaneIndex)
-    {
-        const float CentredLaneIndex =
-            static_cast<float>(LaneIndex) -
-            (static_cast<float>(LaneCount - 1) * 0.5f);
-
-        const float LateralOffset = CentredLaneIndex * LaneWidthCm;
-
-        FVector PreviousLocation =
-            RoadSpline->GetLocationAtDistanceAlongSpline(
-                0.0f,
-                ESplineCoordinateSpace::World);
-
-        PreviousLocation +=
-            RoadSpline->GetRightVectorAtDistanceAlongSpline(
-                0.0f,
-                ESplineCoordinateSpace::World) *
-            LateralOffset;
-
-        for (int32 SegmentIndex = 1;
-            SegmentIndex <= SegmentCount;
-            ++SegmentIndex)
+        if (Lane.Samples.Num() < 2)
         {
-            const float Alpha =
-                static_cast<float>(SegmentIndex) /
-                static_cast<float>(SegmentCount);
+            continue;
+        }
 
-            const float Distance = Alpha * SplineLength;
+        const FColor LaneColor =
+            Lane.Direction == ETrafficLaneDirection::Forward
+            ? FColor::Green
+            : FColor::Orange;
 
-            FVector CurrentLocation =
-                RoadSpline->GetLocationAtDistanceAlongSpline(
-                    Distance,
-                    ESplineCoordinateSpace::World);
+        for (int32 SampleIndex = 1;
+            SampleIndex < Lane.Samples.Num();
+            ++SampleIndex)
+        {
+            const FTrafficLaneSample& PreviousSample =
+                Lane.Samples[SampleIndex - 1];
 
-            CurrentLocation +=
-                RoadSpline->GetRightVectorAtDistanceAlongSpline(
-                    Distance,
-                    ESplineCoordinateSpace::World) *
-                LateralOffset;
+            const FTrafficLaneSample& CurrentSample =
+                Lane.Samples[SampleIndex];
 
             DrawDebugLine(
                 GetWorld(),
-                PreviousLocation,
-                CurrentLocation,
-                FColor::Cyan,
+                PreviousSample.Location + HeightOffset,
+                CurrentSample.Location + HeightOffset,
+                LaneColor,
+                false,
+                0.0f,
+                0,
+                4.0f);
+        }
+
+        if (!bDrawLaneDirections)
+        {
+            continue;
+        }
+
+        for (const FTrafficLaneSample& Sample : Lane.Samples)
+        {
+            const FVector ArrowStart =
+                Sample.Location + HeightOffset;
+
+            const FVector ArrowEnd =
+                ArrowStart +
+                Sample.Forward * DirectionArrowLengthCm;
+
+            DrawDebugDirectionalArrow(
+                GetWorld(),
+                ArrowStart,
+                ArrowEnd,
+                50.0f,
+                LaneColor,
                 false,
                 0.0f,
                 0,
                 3.0f);
-
-            PreviousLocation = CurrentLocation;
         }
     }
 }
@@ -320,7 +316,7 @@ void ATrafficRoad::RebuildRoadSurface()
     }
 
     const int32 SegmentCount =
-        bClosedLoop
+        RoadSpline->IsClosedLoop()
         ? SplinePointCount
         : SplinePointCount - 1;
 
@@ -381,14 +377,12 @@ void ATrafficRoad::RebuildRoadSurface()
 
         SurfaceComponent->SetFlags(RF_Transactional);
 
-        SurfaceComponent->SetFlags(RF_Transactional);
+        SurfaceComponent->CreationMethod = EComponentCreationMethod::UserConstructionScript;
 
         // Match mobility before establishing the attachment.
         SurfaceComponent->SetMobility(RoadSpline->Mobility);
 
         SurfaceComponent->SetupAttachment(RoadSpline);
-
-        AddInstanceComponent(SurfaceComponent);
 
         SurfaceComponent->SetStaticMesh(RoadSurfaceMesh);        SurfaceComponent->SetForwardAxis(
             ESplineMeshAxis::X,
