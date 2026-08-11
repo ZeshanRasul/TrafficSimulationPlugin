@@ -33,6 +33,12 @@ public:
     virtual void PostLoad() override;
     virtual void PostDuplicate(bool bDuplicateForPIE) override;
 
+    UFUNCTION(BlueprintPure, Category = "Traffic Road|Lanes")
+    bool EvaluateLaneAtDistance(
+        FTrafficLaneHandle LaneHandle,
+        float DistanceAlongLaneCm,
+        FTransform& OutTransform) const;
+
 private: 
 	void DrawDebugLanes() const;
 

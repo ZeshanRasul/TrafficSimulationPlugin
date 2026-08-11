@@ -8,414 +8,519 @@
 
 ATrafficRoad::ATrafficRoad()
 {
-    PrimaryActorTick.bCanEverTick = true;
+	PrimaryActorTick.bCanEverTick = true;
 
-    RoadSpline = CreateDefaultSubobject<USplineComponent>(TEXT("RoadSpline"));
-    SetRootComponent(RoadSpline);
+	RoadSpline = CreateDefaultSubobject<USplineComponent>(TEXT("RoadSpline"));
+	SetRootComponent(RoadSpline);
 
-    RoadSpline->bDrawDebug = true;
+	RoadSpline->bDrawDebug = true;
 }
 
 void ATrafficRoad::OnConstruction(const FTransform& Transform)
 {
-    Super::OnConstruction(Transform);
+	Super::OnConstruction(Transform);
 
-    EnsureRoadId();
-    RoadSpline->SetClosedLoop(bClosedLoop);
-    RebuildGeneratedLanes();
-    RebuildRoadSurface();
+	EnsureRoadId();
+	RoadSpline->SetClosedLoop(bClosedLoop);
+	RebuildGeneratedLanes();
+	RebuildRoadSurface();
 }
 
 void ATrafficRoad::Tick(float DeltaSeconds)
 {
-    Super::Tick(DeltaSeconds);
+	Super::Tick(DeltaSeconds);
 
-    DrawDebugLanes();
+	DrawDebugLanes();
 }
 
 bool ATrafficRoad::ShouldTickIfViewportsOnly() const
 {
-    return true;
+	return true;
 }
 
 void ATrafficRoad::DrawDebugLanes() const
 {
-    if (!bDrawDebugLanes || !GetWorld())
-    {
-        return;
-    }
+	if (!bDrawDebugLanes || !GetWorld())
+	{
+		return;
+	}
 
-    const FVector HeightOffset =
-        FVector::UpVector * DebugHeightOffsetCm;
+	const FVector HeightOffset =
+		FVector::UpVector * DebugHeightOffsetCm;
 
-    for (const FTrafficLane& Lane : GeneratedLanes)
-    {
-        if (Lane.Samples.Num() < 2)
-        {
-            continue;
-        }
+	for (const FTrafficLane& Lane : GeneratedLanes)
+	{
+		if (Lane.Samples.Num() < 2)
+		{
+			continue;
+		}
 
-        const FColor LaneColor =
-            Lane.Direction == ETrafficLaneDirection::Forward
-            ? FColor::Green
-            : FColor::Orange;
+		const FColor LaneColor =
+			Lane.Direction == ETrafficLaneDirection::Forward
+			? FColor::Green
+			: FColor::Orange;
 
-        for (int32 SampleIndex = 1;
-            SampleIndex < Lane.Samples.Num();
-            ++SampleIndex)
-        {
-            const FTrafficLaneSample& PreviousSample =
-                Lane.Samples[SampleIndex - 1];
+		for (int32 SampleIndex = 1;
+			SampleIndex < Lane.Samples.Num();
+			++SampleIndex)
+		{
+			const FTrafficLaneSample& PreviousSample =
+				Lane.Samples[SampleIndex - 1];
 
-            const FTrafficLaneSample& CurrentSample =
-                Lane.Samples[SampleIndex];
+			const FTrafficLaneSample& CurrentSample =
+				Lane.Samples[SampleIndex];
 
-            DrawDebugLine(
-                GetWorld(),
-                PreviousSample.Location + HeightOffset,
-                CurrentSample.Location + HeightOffset,
-                LaneColor,
-                false,
-                0.0f,
-                0,
-                4.0f);
-        }
+			DrawDebugLine(
+				GetWorld(),
+				PreviousSample.Location + HeightOffset,
+				CurrentSample.Location + HeightOffset,
+				LaneColor,
+				false,
+				0.0f,
+				0,
+				4.0f);
+		}
 
-        if (!bDrawLaneDirections)
-        {
-            continue;
-        }
+		if (!bDrawLaneDirections)
+		{
+			continue;
+		}
 
-        for (const FTrafficLaneSample& Sample : Lane.Samples)
-        {
-            const FVector ArrowStart =
-                Sample.Location + HeightOffset;
+		for (const FTrafficLaneSample& Sample : Lane.Samples)
+		{
+			const FVector ArrowStart =
+				Sample.Location + HeightOffset;
 
-            const FVector ArrowEnd =
-                ArrowStart +
-                Sample.Forward * DirectionArrowLengthCm;
+			const FVector ArrowEnd =
+				ArrowStart +
+				Sample.Forward * DirectionArrowLengthCm;
 
-            DrawDebugDirectionalArrow(
-                GetWorld(),
-                ArrowStart,
-                ArrowEnd,
-                50.0f,
-                LaneColor,
-                false,
-                0.0f,
-                0,
-                3.0f);
-        }
-    }
+			DrawDebugDirectionalArrow(
+				GetWorld(),
+				ArrowStart,
+				ArrowEnd,
+				50.0f,
+				LaneColor,
+				false,
+				0.0f,
+				0,
+				3.0f);
+		}
+	}
 }
 
 const FGuid& ATrafficRoad::GetRoadId() const
 {
-    return RoadId;
+	return RoadId;
 }
 
 FTrafficLaneHandle ATrafficRoad::GetLaneHandle(int32 LaneIndex) const
 {
-    FTrafficLaneHandle Handle;
+	FTrafficLaneHandle Handle;
 
-    if (RoadId.IsValid() &&
-        LaneIndex >= 0 &&
-        LaneIndex < LaneCount)
-    {
-        Handle.RoadId = RoadId;
-        Handle.LaneIndex = LaneIndex;
-    }
+	if (RoadId.IsValid() &&
+		LaneIndex >= 0 &&
+		LaneIndex < LaneCount)
+	{
+		Handle.RoadId = RoadId;
+		Handle.LaneIndex = LaneIndex;
+	}
 
-    return Handle;
+	return Handle;
 }
 
 void ATrafficRoad::EnsureRoadId()
 {
-    if (!RoadId.IsValid())
-    {
-        RoadId = FGuid::NewGuid();
-    }
+	if (!RoadId.IsValid())
+	{
+		RoadId = FGuid::NewGuid();
+	}
 }
 
 void ATrafficRoad::PostActorCreated()
 {
-    Super::PostActorCreated();
+	Super::PostActorCreated();
 
-    EnsureRoadId();
+	EnsureRoadId();
 }
 
 void ATrafficRoad::PostLoad()
 {
-    Super::PostLoad();
+	Super::PostLoad();
 
-    EnsureRoadId();
+	EnsureRoadId();
 }
 
 void ATrafficRoad::PostDuplicate(bool bDuplicateForPIE)
 {
-    Super::PostDuplicate(bDuplicateForPIE);
+	Super::PostDuplicate(bDuplicateForPIE);
 
-    if (bDuplicateForPIE)
-    {
-        EnsureRoadId();
-    }
-    else
-    {
-        RoadId = FGuid::NewGuid();
-    }
+	if (bDuplicateForPIE)
+	{
+		EnsureRoadId();
+	}
+	else
+	{
+		RoadId = FGuid::NewGuid();
+	}
 }
 
 ETrafficLaneDirection ATrafficRoad::DetermineLaneDirection(
-    float LateralOffset) const
+	float LateralOffset) const
 {
-    if (FMath::IsNearlyZero(LateralOffset))
-    {
-        return ETrafficLaneDirection::Forward;
-    }
+	if (FMath::IsNearlyZero(LateralOffset))
+	{
+		return ETrafficLaneDirection::Forward;
+	}
 
-    const bool bLaneIsOnRight = LateralOffset > 0.0f;
+	const bool bLaneIsOnRight = LateralOffset > 0.0f;
 
-    const bool bTravelsForward =
-        DrivingSide == ETrafficDrivingSide::Right
-        ? !bLaneIsOnRight
-        : bLaneIsOnRight;
+	const bool bTravelsForward =
+		DrivingSide == ETrafficDrivingSide::Right
+		? !bLaneIsOnRight
+		: bLaneIsOnRight;
 
-    return bTravelsForward
-        ? ETrafficLaneDirection::Forward
-        : ETrafficLaneDirection::Reverse;
+	return bTravelsForward
+		? ETrafficLaneDirection::Forward
+		: ETrafficLaneDirection::Reverse;
 }
 
 void ATrafficRoad::RebuildGeneratedLanes()
 {
-    GeneratedLanes.Reset();
+	GeneratedLanes.Reset();
 
-    if (!RoadSpline || !RoadId.IsValid() || LaneCount <= 0)
-    {
-        return;
-    }
+	if (!RoadSpline || !RoadId.IsValid() || LaneCount <= 0)
+	{
+		return;
+	}
 
-    const float SplineLength = RoadSpline->GetSplineLength();
+	const float SplineLength = RoadSpline->GetSplineLength();
 
-    if (SplineLength <= KINDA_SMALL_NUMBER)
-    {
-        return;
-    }
+	if (SplineLength <= KINDA_SMALL_NUMBER)
+	{
+		return;
+	}
 
-    const float SafeSampleSpacing =
-        FMath::Max(LaneGenerationSettings.SampleSpacingCm, 10.0f);
+	const float SafeSampleSpacing =
+		FMath::Max(LaneGenerationSettings.SampleSpacingCm, 10.0f);
 
-    const int32 SegmentCount = FMath::Max(
-        1,
-        FMath::CeilToInt(SplineLength / SafeSampleSpacing));
+	const int32 SegmentCount = FMath::Max(
+		1,
+		FMath::CeilToInt(SplineLength / SafeSampleSpacing));
 
-    const int32 SampleCount = SegmentCount + 1;
+	const int32 SampleCount = SegmentCount + 1;
 
-    GeneratedLanes.Reserve(LaneCount);
+	GeneratedLanes.Reserve(LaneCount);
 
-    for (int32 LaneIndex = 0; LaneIndex < LaneCount; ++LaneIndex)
-    {
-        const float CentredLaneIndex =
-            static_cast<float>(LaneIndex) -
-            static_cast<float>(LaneCount - 1) * 0.5f;
+	for (int32 LaneIndex = 0; LaneIndex < LaneCount; ++LaneIndex)
+	{
+		const float CentredLaneIndex =
+			static_cast<float>(LaneIndex) -
+			static_cast<float>(LaneCount - 1) * 0.5f;
 
-        const float LateralOffset =
-            CentredLaneIndex * LaneWidthCm;
+		const float LateralOffset =
+			CentredLaneIndex * LaneWidthCm;
 
-        const ETrafficLaneDirection Direction =
-            DetermineLaneDirection(LateralOffset);
+		const ETrafficLaneDirection Direction =
+			DetermineLaneDirection(LateralOffset);
 
-        FTrafficLane& Lane = GeneratedLanes.AddDefaulted_GetRef();
+		FTrafficLane& Lane = GeneratedLanes.AddDefaulted_GetRef();
 
-        Lane.Handle = GetLaneHandle(LaneIndex);
-        Lane.Direction = Direction;
-        Lane.WidthCm = LaneWidthCm;
-        Lane.LengthCm = SplineLength;
-        Lane.Samples.Reserve(SampleCount);
+		Lane.Handle = GetLaneHandle(LaneIndex);
+		Lane.Direction = Direction;
+		Lane.WidthCm = LaneWidthCm;
+		Lane.LengthCm = SplineLength;
+		Lane.Samples.Reserve(SampleCount);
 
-        for (int32 SampleIndex = 0;
-            SampleIndex < SampleCount;
-            ++SampleIndex)
-        {
-            const float Alpha =
-                static_cast<float>(SampleIndex) /
-                static_cast<float>(SegmentCount);
+		for (int32 SampleIndex = 0;
+			SampleIndex < SampleCount;
+			++SampleIndex)
+		{
+			const float Alpha =
+				static_cast<float>(SampleIndex) /
+				static_cast<float>(SegmentCount);
 
-            const float DistanceAlongLane =
-                Alpha * SplineLength;
+			const float DistanceAlongLane =
+				Alpha * SplineLength;
 
-            const float DistanceAlongSpline =
-                Direction == ETrafficLaneDirection::Forward
-                ? DistanceAlongLane
-                : SplineLength - DistanceAlongLane;
+			const float DistanceAlongSpline =
+				Direction == ETrafficLaneDirection::Forward
+				? DistanceAlongLane
+				: SplineLength - DistanceAlongLane;
 
-            const FVector SplineLocation =
-                RoadSpline->GetLocationAtDistanceAlongSpline(
-                    DistanceAlongSpline,
-                    ESplineCoordinateSpace::World);
+			const FVector SplineLocation =
+				RoadSpline->GetLocationAtDistanceAlongSpline(
+					DistanceAlongSpline,
+					ESplineCoordinateSpace::World);
 
-            const FVector SplineForward =
-                RoadSpline->GetDirectionAtDistanceAlongSpline(
-                    DistanceAlongSpline,
-                    ESplineCoordinateSpace::World);
+			const FVector SplineForward =
+				RoadSpline->GetDirectionAtDistanceAlongSpline(
+					DistanceAlongSpline,
+					ESplineCoordinateSpace::World);
 
-            const FVector SplineRight =
-                RoadSpline->GetRightVectorAtDistanceAlongSpline(
-                    DistanceAlongSpline,
-                    ESplineCoordinateSpace::World);
+			const FVector SplineRight =
+				RoadSpline->GetRightVectorAtDistanceAlongSpline(
+					DistanceAlongSpline,
+					ESplineCoordinateSpace::World);
 
-            FTrafficLaneSample& Sample =
-                Lane.Samples.AddDefaulted_GetRef();
+			FTrafficLaneSample& Sample =
+				Lane.Samples.AddDefaulted_GetRef();
 
-            Sample.Location =
-                SplineLocation + SplineRight * LateralOffset;
+			Sample.Location =
+				SplineLocation + SplineRight * LateralOffset;
 
-            Sample.Forward =
-                Direction == ETrafficLaneDirection::Forward
-                ? SplineForward
-                : -SplineForward;
+			Sample.Forward =
+				Direction == ETrafficLaneDirection::Forward
+				? SplineForward
+				: -SplineForward;
 
-            Sample.Right =
-                Direction == ETrafficLaneDirection::Forward
-                ? SplineRight
-                : -SplineRight;
+			Sample.Right =
+				Direction == ETrafficLaneDirection::Forward
+				? SplineRight
+				: -SplineRight;
 
-            Sample.DistanceAlongLaneCm = DistanceAlongLane;
-        }
-    }
+			Sample.DistanceAlongLaneCm = DistanceAlongLane;
+		}
+	}
 }
 
 void ATrafficRoad::ClearRoadSurface()
 {
-    for (USplineMeshComponent* SurfaceComponent :
-        RoadSurfaceComponents)
-    {
-        if (IsValid(SurfaceComponent))
-        {
-            SurfaceComponent->DestroyComponent();
-        }
-    }
+	for (USplineMeshComponent* SurfaceComponent :
+		RoadSurfaceComponents)
+	{
+		if (IsValid(SurfaceComponent))
+		{
+			SurfaceComponent->DestroyComponent();
+		}
+	}
 
-    RoadSurfaceComponents.Reset();
+	RoadSurfaceComponents.Reset();
 }
 
 void ATrafficRoad::RebuildRoadSurface()
 {
-    ClearRoadSurface();
+	ClearRoadSurface();
 
-    if (!RoadSpline || !RoadSurfaceMesh || LaneCount <= 0)
-    {
-        return;
-    }
+	if (!RoadSpline || !RoadSurfaceMesh || LaneCount <= 0)
+	{
+		return;
+	}
 
-    const int32 SplinePointCount =
-        RoadSpline->GetNumberOfSplinePoints();
+	const int32 SplinePointCount =
+		RoadSpline->GetNumberOfSplinePoints();
 
-    if (SplinePointCount < 2)
-    {
-        return;
-    }
+	if (SplinePointCount < 2)
+	{
+		return;
+	}
 
-    const int32 SegmentCount =
-        RoadSpline->IsClosedLoop()
-        ? SplinePointCount
-        : SplinePointCount - 1;
+	const int32 SegmentCount =
+		RoadSpline->IsClosedLoop()
+		? SplinePointCount
+		: SplinePointCount - 1;
 
-    const float RoadWidthCm =
-        static_cast<float>(LaneCount) * LaneWidthCm;
+	const float RoadWidthCm =
+		static_cast<float>(LaneCount) * LaneWidthCm;
 
-    const FVector MeshSize =
-        RoadSurfaceMesh->GetBounds().BoxExtent * 2.0f;
+	const FVector MeshSize =
+		RoadSurfaceMesh->GetBounds().BoxExtent * 2.0f;
 
-    if (MeshSize.Y <= KINDA_SMALL_NUMBER ||
-        MeshSize.Z <= KINDA_SMALL_NUMBER)
-    {
-        return;
-    }
+	if (MeshSize.Y <= KINDA_SMALL_NUMBER ||
+		MeshSize.Z <= KINDA_SMALL_NUMBER)
+	{
+		return;
+	}
 
-    const FVector2D SurfaceScale(
-        RoadWidthCm / MeshSize.Y,
-        RoadThicknessCm / MeshSize.Z);
+	const FVector2D SurfaceScale(
+		RoadWidthCm / MeshSize.Y,
+		RoadThicknessCm / MeshSize.Z);
 
-    RoadSurfaceComponents.Reserve(SegmentCount);
+	RoadSurfaceComponents.Reserve(SegmentCount);
 
-    for (int32 SegmentIndex = 0;
-        SegmentIndex < SegmentCount;
-        ++SegmentIndex)
-    {
-        const int32 StartPointIndex = SegmentIndex;
+	for (int32 SegmentIndex = 0;
+		SegmentIndex < SegmentCount;
+		++SegmentIndex)
+	{
+		const int32 StartPointIndex = SegmentIndex;
 
-        const int32 EndPointIndex =
-            (SegmentIndex + 1) % SplinePointCount;
+		const int32 EndPointIndex =
+			(SegmentIndex + 1) % SplinePointCount;
 
-        const FVector StartPosition =
-            RoadSpline->GetLocationAtSplinePoint(
-                StartPointIndex,
-                ESplineCoordinateSpace::Local);
+		const FVector StartPosition =
+			RoadSpline->GetLocationAtSplinePoint(
+				StartPointIndex,
+				ESplineCoordinateSpace::Local);
 
-        const FVector StartTangent =
-            RoadSpline->GetTangentAtSplinePoint(
-                StartPointIndex,
-                ESplineCoordinateSpace::Local);
+		const FVector StartTangent =
+			RoadSpline->GetTangentAtSplinePoint(
+				StartPointIndex,
+				ESplineCoordinateSpace::Local);
 
-        const FVector EndPosition =
-            RoadSpline->GetLocationAtSplinePoint(
-                EndPointIndex,
-                ESplineCoordinateSpace::Local);
+		const FVector EndPosition =
+			RoadSpline->GetLocationAtSplinePoint(
+				EndPointIndex,
+				ESplineCoordinateSpace::Local);
 
-        const FVector EndTangent =
-            RoadSpline->GetTangentAtSplinePoint(
-                EndPointIndex,
-                ESplineCoordinateSpace::Local);
+		const FVector EndTangent =
+			RoadSpline->GetTangentAtSplinePoint(
+				EndPointIndex,
+				ESplineCoordinateSpace::Local);
 
-        USplineMeshComponent* SurfaceComponent =
-            NewObject<USplineMeshComponent>(this);
+		USplineMeshComponent* SurfaceComponent =
+			NewObject<USplineMeshComponent>(this);
 
-        if (!SurfaceComponent)
-        {
-            continue;
-        }
+		if (!SurfaceComponent)
+		{
+			continue;
+		}
 
-        SurfaceComponent->SetFlags(RF_Transactional);
+		SurfaceComponent->SetFlags(RF_Transactional);
 
-        SurfaceComponent->CreationMethod = EComponentCreationMethod::UserConstructionScript;
+		SurfaceComponent->CreationMethod = EComponentCreationMethod::UserConstructionScript;
 
-        // Match mobility before establishing the attachment.
-        SurfaceComponent->SetMobility(RoadSpline->Mobility);
+		// Match mobility before establishing the attachment.
+		SurfaceComponent->SetMobility(RoadSpline->Mobility);
 
-        SurfaceComponent->SetupAttachment(RoadSpline);
+		SurfaceComponent->SetupAttachment(RoadSpline);
 
-        SurfaceComponent->SetStaticMesh(RoadSurfaceMesh);        SurfaceComponent->SetForwardAxis(
-            ESplineMeshAxis::X,
-            false);
+		SurfaceComponent->SetStaticMesh(RoadSurfaceMesh);        SurfaceComponent->SetForwardAxis(
+			ESplineMeshAxis::X,
+			false);
 
-        SurfaceComponent->SetStartAndEnd(
-            StartPosition,
-            StartTangent,
-            EndPosition,
-            EndTangent,
-            false);
+		SurfaceComponent->SetStartAndEnd(
+			StartPosition,
+			StartTangent,
+			EndPosition,
+			EndTangent,
+			false);
 
-        SurfaceComponent->SetStartScale(
-            SurfaceScale,
-            false);
+		SurfaceComponent->SetStartScale(
+			SurfaceScale,
+			false);
 
-        SurfaceComponent->SetEndScale(
-            SurfaceScale,
-            false);
+		SurfaceComponent->SetEndScale(
+			SurfaceScale,
+			false);
 
-        if (RoadSurfaceMaterial)
-        {
-            SurfaceComponent->SetMaterial(
-                0,
-                RoadSurfaceMaterial);
-        }
+		if (RoadSurfaceMaterial)
+		{
+			SurfaceComponent->SetMaterial(
+				0,
+				RoadSurfaceMaterial);
+		}
 
-        SurfaceComponent->SetCollisionEnabled(
-            ECollisionEnabled::NoCollision);
+		SurfaceComponent->SetCollisionEnabled(
+			ECollisionEnabled::NoCollision);
 
-        SurfaceComponent->RegisterComponent();
-        SurfaceComponent->UpdateMesh();
+		SurfaceComponent->RegisterComponent();
+		SurfaceComponent->UpdateMesh();
 
-        RoadSurfaceComponents.Add(SurfaceComponent);
-    }
+		RoadSurfaceComponents.Add(SurfaceComponent);
+	}
+}
+
+bool ATrafficRoad::EvaluateLaneAtDistance(
+	FTrafficLaneHandle LaneHandle,
+	float DistanceAlongLaneCm,
+	FTransform& OutTransform) const
+{
+	OutTransform = FTransform::Identity;
+
+	if (!LaneHandle.IsValid() ||
+		LaneHandle.RoadId != RoadId ||
+		!GeneratedLanes.IsValidIndex(LaneHandle.LaneIndex))
+	{
+		return false;
+	}
+
+	const FTrafficLane& Lane =
+		GeneratedLanes[LaneHandle.LaneIndex];
+
+	if (Lane.Samples.Num() < 2 ||
+		Lane.LengthCm <= KINDA_SMALL_NUMBER)
+	{
+		return false;
+	}
+
+	float SafeDistanceAlongLane;
+
+	if (RoadSpline->IsClosedLoop())
+	{
+		SafeDistanceAlongLane =
+			FMath::Fmod(DistanceAlongLaneCm, Lane.LengthCm);
+
+		if (SafeDistanceAlongLane < 0.0f)
+		{
+			SafeDistanceAlongLane += Lane.LengthCm;
+		}
+	}
+	else
+	{
+		SafeDistanceAlongLane = FMath::Clamp(
+			DistanceAlongLaneCm,
+			0.0f,
+			Lane.LengthCm);
+	}
+
+	int32 EndSampleIndex = 1;
+
+	while (EndSampleIndex < Lane.Samples.Num() &&
+		Lane.Samples[EndSampleIndex].DistanceAlongLaneCm <
+		SafeDistanceAlongLane)
+	{
+		++EndSampleIndex;
+	}
+
+	EndSampleIndex = FMath::Min(
+		EndSampleIndex,
+		Lane.Samples.Num() - 1);
+
+	const int32 StartSampleIndex =
+		FMath::Max(0, EndSampleIndex - 1);
+
+	const FTrafficLaneSample& StartSample =
+		Lane.Samples[StartSampleIndex];
+
+	const FTrafficLaneSample& EndSample =
+		Lane.Samples[EndSampleIndex];
+
+	const float SegmentLength =
+		EndSample.DistanceAlongLaneCm -
+		StartSample.DistanceAlongLaneCm;
+
+	const float Alpha =
+		SegmentLength > KINDA_SMALL_NUMBER
+		? (SafeDistanceAlongLane -
+			StartSample.DistanceAlongLaneCm) /
+		SegmentLength
+		: 0.0f;
+
+	const FVector Location = FMath::Lerp(
+		StartSample.Location,
+		EndSample.Location,
+		Alpha);
+
+	const FVector Forward = FMath::Lerp(
+		StartSample.Forward,
+		EndSample.Forward,
+		Alpha).GetSafeNormal();
+
+	const FVector Right = FMath::Lerp(
+		StartSample.Right,
+		EndSample.Right,
+		Alpha).GetSafeNormal();
+
+	const FVector Up =
+		FVector::CrossProduct(Forward, Right).GetSafeNormal();
+
+	const FQuat Rotation =
+		FRotationMatrix::MakeFromXZ(Forward, Up).ToQuat();
+
+	OutTransform = FTransform(
+		Rotation,
+		Location,
+		FVector::OneVector);
+
+	return true;
 }
