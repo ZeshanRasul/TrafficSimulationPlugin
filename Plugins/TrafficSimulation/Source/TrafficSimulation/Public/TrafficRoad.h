@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "RoadNetwork/TrafficLaneTypes.h"
 #include "TrafficRoad.generated.h"
 
 class USplineComponent;
@@ -20,9 +21,21 @@ public:
 	virtual void Tick(float DeltaSeconds) override;
 	virtual void OnConstruction(const FTransform& Transform) override;
     virtual bool ShouldTickIfViewportsOnly() const override;
+    const FGuid& GetRoadId() const;
+
+    UFUNCTION(BlueprintPure, Category = "Traffic Road")
+    FTrafficLaneHandle GetLaneHandle(int32 LaneIndex) const;
+
+    virtual void PostActorCreated() override;
+    virtual void PostLoad() override;
+    virtual void PostDuplicate(bool bDuplicateForPIE) override;
 
 private: 
 	void DrawDebugLanes() const;
+
+    void EnsureRoadId();
+
+    void RebuildGeneratedLanes();
 
 	UPROPERTY(
 		VisibleAnywhere,
@@ -36,6 +49,13 @@ private:
         Category = "Traffic Road",
         meta = (ClampMin = "1", UIMin = "1"))
     int32 LaneCount = 2;
+
+    UPROPERTY(
+        EditAnywhere,
+        BlueprintReadOnly,
+        Category = "Traffic Road|Lanes",
+        meta = (AllowPrivateAccess = "true"))
+    ETrafficDrivingSide DrivingSide = ETrafficDrivingSide::Right;
 
     UPROPERTY(
         EditAnywhere,
@@ -54,4 +74,28 @@ private:
         Category = "Traffic Road|Debug",
         meta = (ClampMin = "10.0", UIMin = "10.0", Units = "cm"))
     float DebugSampleSpacingCm = 100.0f;
+
+    UPROPERTY(
+        VisibleInstanceOnly,
+        BlueprintReadOnly,
+        Category = "Traffic Road|Identity",
+        meta = (AllowPrivateAccess = "true"))
+    FGuid RoadId;
+
+    UPROPERTY(
+        EditAnywhere,
+        BlueprintReadOnly,
+        Category = "Traffic Road|Generation",
+        meta = (AllowPrivateAccess = "true"))
+    FTrafficLaneGenerationSettings LaneGenerationSettings;
+
+    ETrafficLaneDirection DetermineLaneDirection(float LateralOffset) const;
+    
+    UPROPERTY(
+        VisibleAnywhere,
+        BlueprintReadOnly,
+        Transient,
+        Category = "Traffic Road|Generated",
+        meta = (AllowPrivateAccess = "true"))
+    TArray<FTrafficLane> GeneratedLanes;
 };
