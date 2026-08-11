@@ -2,6 +2,9 @@
 
 #include "Components/SplineComponent.h"
 #include "DrawDebugHelpers.h"
+#include "Components/SplineMeshComponent.h"
+#include "Materials/MaterialInterface.h"
+#include "Engine/StaticMesh.h"
 
 ATrafficRoad::ATrafficRoad()
 {
@@ -20,6 +23,7 @@ void ATrafficRoad::OnConstruction(const FTransform& Transform)
     EnsureRoadId();
     RoadSpline->SetClosedLoop(bClosedLoop);
     RebuildGeneratedLanes();
+    RebuildRoadSurface();
 }
 
 void ATrafficRoad::Tick(float DeltaSeconds)
@@ -281,5 +285,143 @@ void ATrafficRoad::RebuildGeneratedLanes()
 
             Sample.DistanceAlongLaneCm = DistanceAlongLane;
         }
+    }
+}
+
+void ATrafficRoad::ClearRoadSurface()
+{
+    for (USplineMeshComponent* SurfaceComponent :
+        RoadSurfaceComponents)
+    {
+        if (IsValid(SurfaceComponent))
+        {
+            SurfaceComponent->DestroyComponent();
+        }
+    }
+
+    RoadSurfaceComponents.Reset();
+}
+
+void ATrafficRoad::RebuildRoadSurface()
+{
+    ClearRoadSurface();
+
+    if (!RoadSpline || !RoadSurfaceMesh || LaneCount <= 0)
+    {
+        return;
+    }
+
+    const int32 SplinePointCount =
+        RoadSpline->GetNumberOfSplinePoints();
+
+    if (SplinePointCount < 2)
+    {
+        return;
+    }
+
+    const int32 SegmentCount =
+        bClosedLoop
+        ? SplinePointCount
+        : SplinePointCount - 1;
+
+    const float RoadWidthCm =
+        static_cast<float>(LaneCount) * LaneWidthCm;
+
+    const FVector MeshSize =
+        RoadSurfaceMesh->GetBounds().BoxExtent * 2.0f;
+
+    if (MeshSize.Y <= KINDA_SMALL_NUMBER ||
+        MeshSize.Z <= KINDA_SMALL_NUMBER)
+    {
+        return;
+    }
+
+    const FVector2D SurfaceScale(
+        RoadWidthCm / MeshSize.Y,
+        RoadThicknessCm / MeshSize.Z);
+
+    RoadSurfaceComponents.Reserve(SegmentCount);
+
+    for (int32 SegmentIndex = 0;
+        SegmentIndex < SegmentCount;
+        ++SegmentIndex)
+    {
+        const int32 StartPointIndex = SegmentIndex;
+
+        const int32 EndPointIndex =
+            (SegmentIndex + 1) % SplinePointCount;
+
+        const FVector StartPosition =
+            RoadSpline->GetLocationAtSplinePoint(
+                StartPointIndex,
+                ESplineCoordinateSpace::Local);
+
+        const FVector StartTangent =
+            RoadSpline->GetTangentAtSplinePoint(
+                StartPointIndex,
+                ESplineCoordinateSpace::Local);
+
+        const FVector EndPosition =
+            RoadSpline->GetLocationAtSplinePoint(
+                EndPointIndex,
+                ESplineCoordinateSpace::Local);
+
+        const FVector EndTangent =
+            RoadSpline->GetTangentAtSplinePoint(
+                EndPointIndex,
+                ESplineCoordinateSpace::Local);
+
+        USplineMeshComponent* SurfaceComponent =
+            NewObject<USplineMeshComponent>(this);
+
+        if (!SurfaceComponent)
+        {
+            continue;
+        }
+
+        SurfaceComponent->SetFlags(RF_Transactional);
+
+        SurfaceComponent->SetFlags(RF_Transactional);
+
+        // Match mobility before establishing the attachment.
+        SurfaceComponent->SetMobility(RoadSpline->Mobility);
+
+        SurfaceComponent->SetupAttachment(RoadSpline);
+
+        AddInstanceComponent(SurfaceComponent);
+
+        SurfaceComponent->SetStaticMesh(RoadSurfaceMesh);        SurfaceComponent->SetForwardAxis(
+            ESplineMeshAxis::X,
+            false);
+
+        SurfaceComponent->SetStartAndEnd(
+            StartPosition,
+            StartTangent,
+            EndPosition,
+            EndTangent,
+            false);
+
+        SurfaceComponent->SetStartScale(
+            SurfaceScale,
+            false);
+
+        SurfaceComponent->SetEndScale(
+            SurfaceScale,
+            false);
+
+        if (RoadSurfaceMaterial)
+        {
+            SurfaceComponent->SetMaterial(
+                0,
+                RoadSurfaceMaterial);
+        }
+
+        SurfaceComponent->SetCollisionEnabled(
+            ECollisionEnabled::NoCollision);
+
+        SurfaceComponent->RegisterComponent();
+        SurfaceComponent->UpdateMesh();
+
+        RoadSurfaceComponents.Add(SurfaceComponent);
     }
 }

@@ -8,6 +8,9 @@
 #include "TrafficRoad.generated.h"
 
 class USplineComponent;
+class UMaterialInterface;
+class USplineMeshComponent;
+class UStaticMesh;
 
 UCLASS()
 class TRAFFICSIMULATION_API ATrafficRoad : public AActor
@@ -98,4 +101,35 @@ private:
         Category = "Traffic Road|Generated",
         meta = (AllowPrivateAccess = "true"))
     TArray<FTrafficLane> GeneratedLanes;
+
+    UPROPERTY(
+        EditAnywhere,
+        BlueprintReadOnly,
+        Category = "Traffic Road|Rendering",
+        meta = (AllowPrivateAccess = "true"))
+    TObjectPtr<UStaticMesh> RoadSurfaceMesh;
+
+    UPROPERTY(
+        EditAnywhere,
+        BlueprintReadOnly,
+        Category = "Traffic Road|Rendering",
+        meta = (AllowPrivateAccess = "true"))
+    TObjectPtr<UMaterialInterface> RoadSurfaceMaterial;
+
+    UPROPERTY(
+        EditAnywhere,
+        BlueprintReadOnly,
+        Category = "Traffic Road|Rendering",
+        meta = (
+            AllowPrivateAccess = "true",
+            ClampMin = "1.0",
+            UIMin = "1.0",
+            Units = "cm"))
+    float RoadThicknessCm = 10.0f;
+
+    UPROPERTY(Transient)
+    TArray<TObjectPtr<USplineMeshComponent>> RoadSurfaceComponents;
+
+    void ClearRoadSurface();
+    void RebuildRoadSurface();
 };
