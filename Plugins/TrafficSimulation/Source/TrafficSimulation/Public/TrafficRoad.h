@@ -162,8 +162,7 @@ private:
     bool bClosedLoop = false;
 
     UPROPERTY(Transient)
-    TArray<TObjectPtr<USplineMeshComponent>> RoadSurfaceComponents;
-
+    TArray<TObjectPtr<USplineMeshComponent>> RoadSurfaceComponents;  
 
     void ClearRoadSurface();
     void RebuildRoadSurface();

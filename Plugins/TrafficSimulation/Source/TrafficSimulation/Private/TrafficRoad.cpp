@@ -231,6 +231,7 @@ void ATrafficRoad::RebuildGeneratedLanes()
 		Lane.WidthCm = LaneWidthCm;
 		Lane.LengthCm = SplineLength;
 		Lane.Samples.Reserve(SampleCount);
+		Lane.LateralOffsetCm = LateralOffset;
 
 		for (int32 SampleIndex = 0;
 			SampleIndex < SampleCount;
@@ -443,7 +444,7 @@ bool ATrafficRoad::EvaluateLaneAtDistance(
 		return false;
 	}
 
-	float SafeDistanceAlongLane;
+	float SafeDistanceAlongLane = 0.0f;
 
 	if (RoadSpline->IsClosedLoop())
 	{
@@ -463,53 +464,39 @@ bool ATrafficRoad::EvaluateLaneAtDistance(
 			Lane.LengthCm);
 	}
 
-	int32 EndSampleIndex = 1;
+	const float DistanceAlongSpline =
+		Lane.Direction == ETrafficLaneDirection::Forward
+		? SafeDistanceAlongLane
+		: Lane.LengthCm - SafeDistanceAlongLane;
 
-	while (EndSampleIndex < Lane.Samples.Num() &&
-		Lane.Samples[EndSampleIndex].DistanceAlongLaneCm <
-		SafeDistanceAlongLane)
-	{
-		++EndSampleIndex;
-	}
+	const FVector SplineLocation =
+		RoadSpline->GetLocationAtDistanceAlongSpline(
+			DistanceAlongSpline,
+			ESplineCoordinateSpace::World);
 
-	EndSampleIndex = FMath::Min(
-		EndSampleIndex,
-		Lane.Samples.Num() - 1);
+	const FVector SplineForward =
+		RoadSpline->GetDirectionAtDistanceAlongSpline(
+			DistanceAlongSpline,
+			ESplineCoordinateSpace::World);
 
-	const int32 StartSampleIndex =
-		FMath::Max(0, EndSampleIndex - 1);
+	const FVector SplineRight =
+		RoadSpline->GetRightVectorAtDistanceAlongSpline(
+			DistanceAlongSpline,
+			ESplineCoordinateSpace::World);
 
-	const FTrafficLaneSample& StartSample =
-		Lane.Samples[StartSampleIndex];
+	const FVector Location =
+		SplineLocation +
+		SplineRight * Lane.LateralOffsetCm;
 
-	const FTrafficLaneSample& EndSample =
-		Lane.Samples[EndSampleIndex];
+	const FVector Forward =
+		Lane.Direction == ETrafficLaneDirection::Forward
+		? SplineForward
+		: -SplineForward;
 
-	const float SegmentLength =
-		EndSample.DistanceAlongLaneCm -
-		StartSample.DistanceAlongLaneCm;
-
-	const float Alpha =
-		SegmentLength > KINDA_SMALL_NUMBER
-		? (SafeDistanceAlongLane -
-			StartSample.DistanceAlongLaneCm) /
-		SegmentLength
-		: 0.0f;
-
-	const FVector Location = FMath::Lerp(
-		StartSample.Location,
-		EndSample.Location,
-		Alpha);
-
-	const FVector Forward = FMath::Lerp(
-		StartSample.Forward,
-		EndSample.Forward,
-		Alpha).GetSafeNormal();
-
-	const FVector Right = FMath::Lerp(
-		StartSample.Right,
-		EndSample.Right,
-		Alpha).GetSafeNormal();
+	const FVector Right =
+		Lane.Direction == ETrafficLaneDirection::Forward
+		? SplineRight
+		: -SplineRight;
 
 	const FVector Up =
 		FVector::CrossProduct(Forward, Right).GetSafeNormal();

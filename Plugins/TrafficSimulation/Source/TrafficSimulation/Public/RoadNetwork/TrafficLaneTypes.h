@@ -94,6 +94,9 @@ struct TRAFFICSIMULATION_API FTrafficLane
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Traffic Lane")
     TArray<FTrafficLaneSample> Samples;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Traffic Lane")
+    float LateralOffsetCm = 0.0f;
 };
 
 USTRUCT(BlueprintType)
