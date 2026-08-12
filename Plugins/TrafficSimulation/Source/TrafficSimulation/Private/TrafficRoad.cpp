@@ -524,3 +524,33 @@ bool ATrafficRoad::EvaluateLaneAtDistance(
 
 	return true;
 }
+
+bool ATrafficRoad::GetLaneLength(
+	FTrafficLaneHandle LaneHandle,
+	float& OutLengthCm) const
+{
+	OutLengthCm = 0.0f;
+
+	if (!LaneHandle.IsValid() ||
+		LaneHandle.RoadId != RoadId ||
+		!GeneratedLanes.IsValidIndex(LaneHandle.LaneIndex))
+	{
+		return false;
+	}
+
+	const FTrafficLane& Lane =
+		GeneratedLanes[LaneHandle.LaneIndex];
+
+	if (Lane.LengthCm <= KINDA_SMALL_NUMBER)
+	{
+		return false;
+	}
+
+	OutLengthCm = Lane.LengthCm;
+	return true;
+}
+
+bool ATrafficRoad::IsRoadClosedLoop() const
+{
+	return RoadSpline && RoadSpline->IsClosedLoop();
+}

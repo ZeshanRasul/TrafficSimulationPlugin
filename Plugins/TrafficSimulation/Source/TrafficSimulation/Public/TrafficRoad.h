@@ -39,6 +39,14 @@ public:
         float DistanceAlongLaneCm,
         FTransform& OutTransform) const;
 
+    UFUNCTION(BlueprintPure, Category = "Traffic Road|Lanes")
+    bool GetLaneLength(
+        FTrafficLaneHandle LaneHandle,
+        float& OutLengthCm) const;
+
+    UFUNCTION(BlueprintPure, Category = "Traffic Road|Shape")
+    bool IsRoadClosedLoop() const;
+
 private: 
 	void DrawDebugLanes() const;
 
