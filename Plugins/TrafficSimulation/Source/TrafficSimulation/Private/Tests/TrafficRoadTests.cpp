@@ -1,0 +1,213 @@
+#if WITH_DEV_AUTOMATION_TESTS
+
+#include "Misc/AutomationTest.h"
+#include "Tests/AutomationEditorCommon.h"
+#include "TrafficRoad.h"
+
+#endif
+
+#if WITH_DEV_AUTOMATION_TESTS
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FTrafficRoadLaneHandleTest,
+    "TrafficSimulation.Road.LaneHandleValidation",
+    EAutomationTestFlags::EditorContext |
+    EAutomationTestFlags::EngineFilter)
+
+    bool FTrafficRoadLaneHandleTest::RunTest(
+        const FString& Parameters)
+{
+    UWorld* World =
+        FAutomationEditorCommonUtils::CreateNewMap();
+
+    TestNotNull(TEXT("Test world exists"), World);
+
+    if (!World)
+    {
+        return false;
+    }
+
+    ATrafficRoad* Road =
+        World->SpawnActor<ATrafficRoad>();
+
+    TestNotNull(TEXT("Road was spawned"), Road);
+
+    if (!Road)
+    {
+        return false;
+    }
+
+    const FTrafficLaneHandle LaneZero =
+        Road->GetLaneHandle(0);
+
+    const FTrafficLaneHandle LaneOne =
+        Road->GetLaneHandle(1);
+
+    const FTrafficLaneHandle NegativeLane =
+        Road->GetLaneHandle(-1);
+
+    const FTrafficLaneHandle OutOfRangeLane =
+        Road->GetLaneHandle(2);
+
+    TestTrue(
+        TEXT("Lane zero handle is valid"),
+        LaneZero.IsValid());
+
+    TestTrue(
+        TEXT("Lane one handle is valid"),
+        LaneOne.IsValid());
+
+    TestFalse(
+        TEXT("Negative lane index is rejected"),
+        NegativeLane.IsValid());
+
+    TestFalse(
+        TEXT("Out-of-range lane index is rejected"),
+        OutOfRangeLane.IsValid());
+
+    TestNotEqual(
+        TEXT("Different lanes have different handles"),
+        LaneZero,
+        LaneOne);
+
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FTrafficRoadOpposingLaneDirectionTest,
+    "TrafficSimulation.Road.OpposingLaneDirections",
+    EAutomationTestFlags::EditorContext |
+    EAutomationTestFlags::EngineFilter)
+
+    bool FTrafficRoadOpposingLaneDirectionTest::RunTest(
+        const FString& Parameters)
+{
+    UWorld* World =
+        FAutomationEditorCommonUtils::CreateNewMap();
+
+    TestNotNull(TEXT("Test world exists"), World);
+
+    if (!World)
+    {
+        return false;
+    }
+
+    ATrafficRoad* Road =
+        World->SpawnActor<ATrafficRoad>();
+
+    TestNotNull(TEXT("Road was spawned"), Road);
+
+    if (!Road)
+    {
+        return false;
+    }
+
+    const FTrafficLaneHandle ForwardLane =
+        Road->GetLaneHandle(0);
+
+    const FTrafficLaneHandle ReverseLane =
+        Road->GetLaneHandle(1);
+
+    float LaneLengthCm = 0.0f;
+
+    const bool bLengthResolved =
+        Road->GetLaneLength(
+            ForwardLane,
+            LaneLengthCm);
+
+    TestTrue(
+        TEXT("Lane length resolves"),
+        bLengthResolved);
+
+    if (!bLengthResolved)
+    {
+        return false;
+    }
+
+    const float EarlierDistanceCm =
+        LaneLengthCm * 0.25f;
+
+    const float LaterDistanceCm =
+        LaneLengthCm * 0.75f;
+
+    FTransform ForwardEarlierTransform;
+    FTransform ForwardLaterTransform;
+    FTransform ReverseEarlierTransform;
+    FTransform ReverseLaterTransform;
+
+    const bool bForwardEarlierEvaluated =
+        Road->EvaluateLaneAtDistance(
+            ForwardLane,
+            EarlierDistanceCm,
+            ForwardEarlierTransform);
+
+    const bool bForwardLaterEvaluated =
+        Road->EvaluateLaneAtDistance(
+            ForwardLane,
+            LaterDistanceCm,
+            ForwardLaterTransform);
+
+    const bool bReverseEarlierEvaluated =
+        Road->EvaluateLaneAtDistance(
+            ReverseLane,
+            EarlierDistanceCm,
+            ReverseEarlierTransform);
+
+    const bool bReverseLaterEvaluated =
+        Road->EvaluateLaneAtDistance(
+            ReverseLane,
+            LaterDistanceCm,
+            ReverseLaterTransform);
+
+    TestTrue(
+        TEXT("Forward lane evaluates at both distances"),
+        bForwardEarlierEvaluated && bForwardLaterEvaluated);
+
+    TestTrue(
+        TEXT("Reverse lane evaluates at both distances"),
+        bReverseEarlierEvaluated && bReverseLaterEvaluated);
+
+    if (!bForwardEarlierEvaluated ||
+        !bForwardLaterEvaluated ||
+        !bReverseEarlierEvaluated ||
+        !bReverseLaterEvaluated)
+    {
+        return false;
+    }
+
+    const FVector ForwardDisplacement =
+        ForwardLaterTransform.GetLocation() -
+        ForwardEarlierTransform.GetLocation();
+
+    const FVector ReverseDisplacement =
+        ReverseLaterTransform.GetLocation() -
+        ReverseEarlierTransform.GetLocation();
+
+    const FVector ForwardFacing =
+        ForwardEarlierTransform.GetUnitAxis(EAxis::X);
+
+    const FVector ReverseFacing =
+        ReverseEarlierTransform.GetUnitAxis(EAxis::X);
+
+    TestTrue(
+        TEXT("Forward lane moves along its facing direction"),
+        FVector::DotProduct(
+            ForwardDisplacement.GetSafeNormal(),
+            ForwardFacing) > 0.99f);
+
+    TestTrue(
+        TEXT("Reverse lane moves along its facing direction"),
+        FVector::DotProduct(
+            ReverseDisplacement.GetSafeNormal(),
+            ReverseFacing) > 0.99f);
+
+    TestTrue(
+        TEXT("Lane movement directions oppose each other"),
+        FVector::DotProduct(
+            ForwardDisplacement.GetSafeNormal(),
+            ReverseDisplacement.GetSafeNormal()) < -0.99f);
+
+    return true;
+}
+
+#endif
