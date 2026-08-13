@@ -2,6 +2,7 @@
 
 #include "Misc/AutomationTest.h"
 #include "Tests/AutomationEditorCommon.h"
+#include "RoadNetwork/TrafficRoadNetwork.h"
 #include "TrafficRoad.h"
 
 #endif
@@ -502,6 +503,197 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
         ForwardExitTransform.GetLocation().Equals(
             ReverseEntryTransform.GetLocation(),
             400.0f));
+
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FTrafficRoadNetworkConnectionTest,
+    "TrafficSimulation.Network.SimpleConnections",
+    EAutomationTestFlags::EditorContext |
+    EAutomationTestFlags::EngineFilter)
+
+    bool FTrafficRoadNetworkConnectionTest::RunTest(
+        const FString& Parameters)
+{
+    UWorld* World =
+        FAutomationEditorCommonUtils::CreateNewMap();
+
+    if (!TestNotNull(TEXT("Test world exists"), World))
+    {
+        return false;
+    }
+
+    FActorSpawnParameters SpawnParameters;
+    SpawnParameters.SpawnCollisionHandlingOverride =
+        ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+    ATrafficRoad* FirstRoad =
+        World->SpawnActor<ATrafficRoad>(
+            FVector::ZeroVector,
+            FRotator::ZeroRotator,
+            SpawnParameters);
+
+    ATrafficRoad* SecondRoad =
+        World->SpawnActor<ATrafficRoad>(
+            FVector(100.0f, 0.0f, 0.0f),
+            FRotator::ZeroRotator,
+            SpawnParameters);
+
+    ATrafficRoadNetwork* Network =
+        World->SpawnActor<ATrafficRoadNetwork>(
+            FVector::ZeroVector,
+            FRotator::ZeroRotator,
+            SpawnParameters);
+
+    if (!TestNotNull(TEXT("First road spawned"), FirstRoad) ||
+        !TestNotNull(TEXT("Second road spawned"), SecondRoad) ||
+        !TestNotNull(TEXT("Network spawned"), Network))
+    {
+        return false;
+    }
+
+    Network->AddRoad(FirstRoad);
+    Network->AddRoad(SecondRoad);
+    Network->BuildSimpleConnections();
+
+    TestTrue(
+        TEXT("Connections were generated"),
+        Network->GetConnectionCount() > 0);
+
+    const FTrafficLaneHandle FirstForwardLane =
+        FirstRoad->GetLaneHandle(0);
+
+    const FTrafficLaneHandle SecondForwardLane =
+        SecondRoad->GetLaneHandle(0);
+
+    const FTrafficLaneHandle SecondReverseLane =
+        SecondRoad->GetLaneHandle(1);
+
+    const FTrafficLaneHandle FirstReverseLane =
+        FirstRoad->GetLaneHandle(1);
+
+    FTrafficLaneHandle ForwardNextLane;
+    FTrafficLaneHandle ReverseNextLane;
+
+    const bool bForwardConnectionFound =
+        Network->FindNextLane(
+            FirstForwardLane,
+            ForwardNextLane);
+
+    const bool bReverseConnectionFound =
+        Network->FindNextLane(
+            SecondReverseLane,
+            ReverseNextLane);
+
+    TestTrue(
+        TEXT("Forward connection resolves"),
+        bForwardConnectionFound);
+
+    TestTrue(
+        TEXT("Reverse connection resolves"),
+        bReverseConnectionFound);
+
+    if (bForwardConnectionFound)
+    {
+        TestTrue(
+            TEXT("Forward connection targets second road"),
+            ForwardNextLane == SecondForwardLane);
+    }
+
+    if (bReverseConnectionFound)
+    {
+        TestTrue(
+            TEXT("Reverse connection targets first road"),
+            ReverseNextLane == FirstReverseLane);
+    }
+
+    Network->ValidateNetwork();
+
+    const FTrafficNetworkValidationReport Report =
+        Network->GetValidationReport();
+
+    TestTrue(
+        TEXT("Generated network passes validation"),
+        Report.bIsValid);
+
+    TestEqual(
+        TEXT("Generated network has no validation errors"),
+        Report.Errors.Num(),
+        0);
+
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FTrafficRoadNetworkInvalidConnectionTest,
+    "TrafficSimulation.Network.InvalidConnectionValidation",
+    EAutomationTestFlags::EditorContext |
+    EAutomationTestFlags::EngineFilter)
+
+    bool FTrafficRoadNetworkInvalidConnectionTest::RunTest(
+        const FString& Parameters)
+{
+    UWorld* World =
+        FAutomationEditorCommonUtils::CreateNewMap();
+
+    if (!TestNotNull(TEXT("Test world exists"), World))
+    {
+        return false;
+    }
+
+    ATrafficRoad* FirstRoad =
+        World->SpawnActor<ATrafficRoad>();
+
+    ATrafficRoad* SecondRoad =
+        World->SpawnActor<ATrafficRoad>();
+
+    ATrafficRoadNetwork* Network =
+        World->SpawnActor<ATrafficRoadNetwork>();
+
+    if (!FirstRoad || !SecondRoad || !Network)
+    {
+        AddError(TEXT("Required test actors did not spawn."));
+        return false;
+    }
+
+    Network->AddRoad(FirstRoad);
+    Network->AddRoad(SecondRoad);
+
+    FTrafficLaneConnection InvalidConnection;
+
+    // Invalid because a connection must originate at an Exit.
+    InvalidConnection.Source =
+        FirstRoad->GetLaneEndpointHandle(
+            0,
+            ETrafficLaneEndpoint::Entry);
+
+    InvalidConnection.Target =
+        SecondRoad->GetLaneEndpointHandle(
+            0,
+            ETrafficLaneEndpoint::Entry);
+
+    Network->AddConnection(InvalidConnection);
+    Network->ValidateNetwork();
+
+    const FTrafficNetworkValidationReport Report =
+        Network->GetValidationReport();
+
+    TestFalse(
+        TEXT("Invalid connection fails validation"),
+        Report.bIsValid);
+
+    TestTrue(
+        TEXT("Validation reports at least one error"),
+        Report.Errors.Num() > 0);
+
+    FTrafficLaneHandle UnexpectedNextLane;
+
+    TestFalse(
+        TEXT("Invalid connection is excluded from runtime lookup"),
+        Network->FindNextLane(
+            InvalidConnection.Source.Lane,
+            UnexpectedNextLane));
 
     return true;
 }

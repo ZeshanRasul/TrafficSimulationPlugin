@@ -7,6 +7,48 @@
 
 class ATrafficRoad;
 
+USTRUCT(BlueprintType)
+struct TRAFFICSIMULATION_API FTrafficNetworkValidationReport
+{
+    GENERATED_BODY()
+
+    UPROPERTY(
+        VisibleAnywhere,
+        BlueprintReadOnly,
+        Category = "Traffic Network Validation")
+    bool bIsValid = true;
+
+    UPROPERTY(
+        VisibleAnywhere,
+        BlueprintReadOnly,
+        Category = "Traffic Network Validation")
+    TArray<FString> Errors;
+
+    UPROPERTY(
+        VisibleAnywhere,
+        BlueprintReadOnly,
+        Category = "Traffic Network Validation")
+    TArray<FString> Warnings;
+
+    void Reset()
+    {
+        bIsValid = true;
+        Errors.Reset();
+        Warnings.Reset();
+    }
+
+    void AddError(const FString& Message)
+    {
+        bIsValid = false;
+        Errors.Add(Message);
+    }
+
+    void AddWarning(const FString& Message)
+    {
+        Warnings.Add(Message);
+    }
+};
+
 UCLASS()
 class TRAFFICSIMULATION_API ATrafficRoadNetwork : public AActor
 {
@@ -47,13 +89,37 @@ public:
             Units = "cm"))
     float MaximumConnectionDistanceCm = 500.0f;
 
+    UFUNCTION(BlueprintCallable, Category = "Traffic Network|Roads")
+    void AddRoad(ATrafficRoad* Road);
+
+    UFUNCTION(BlueprintPure, Category = "Traffic Network|Connections")
+    int32 GetConnectionCount() const;
+
+    UFUNCTION(
+        BlueprintCallable,
+        CallInEditor,
+        Category = "Traffic Network|Validation")
+    void ValidateNetwork();
+
+    UFUNCTION(BlueprintPure, Category = "Traffic Network|Validation")
+    FTrafficNetworkValidationReport GetValidationReport() const;
+
+    UFUNCTION(BlueprintCallable, Category = "Traffic Network|Connections")
+    void AddConnection(const FTrafficLaneConnection& Connection);
+
+    UFUNCTION(BlueprintCallable, Category = "Traffic Network|Connections")
+    void ClearConnections();
+private:
+    void DrawDebugConnections() const;
+
     void BuildConnectionsBetweenRoads(
         ATrafficRoad* FirstRoad,
         ATrafficRoad* SecondRoad);
 
-private:
-    void DrawDebugConnections() const;
-
+    UPROPERTY(
+        VisibleAnywhere,
+        Category = "Traffic Network|Validation")
+    FTrafficNetworkValidationReport LastValidationReport;
 
     UPROPERTY(
         EditInstanceOnly,
