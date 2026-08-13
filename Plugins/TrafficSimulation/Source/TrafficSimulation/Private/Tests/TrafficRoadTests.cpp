@@ -317,4 +317,105 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
     return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FTrafficRoadClosedDistanceWrappingTest,
+    "TrafficSimulation.Road.ClosedDistanceWrapping",
+    EAutomationTestFlags::EditorContext |
+    EAutomationTestFlags::EngineFilter)
+
+    bool FTrafficRoadClosedDistanceWrappingTest::RunTest(
+        const FString& Parameters)
+{
+    UWorld* World =
+        FAutomationEditorCommonUtils::CreateNewMap();
+
+    TestNotNull(TEXT("Test world exists"), World);
+
+    if (!World)
+    {
+        return false;
+    }
+
+    ATrafficRoad* Road =
+        World->SpawnActor<ATrafficRoad>();
+
+    TestNotNull(TEXT("Road was spawned"), Road);
+
+    if (!Road)
+    {
+        return false;
+    }
+
+    Road->SetRoadClosedLoop(true);
+
+    TestTrue(
+        TEXT("Road reports closed-loop state"),
+        Road->IsRoadClosedLoop());
+
+    const FTrafficLaneHandle LaneHandle =
+        Road->GetLaneHandle(0);
+
+    float LaneLengthCm = 0.0f;
+
+    if (!Road->GetLaneLength(
+        LaneHandle,
+        LaneLengthCm))
+    {
+        AddError(TEXT("Could not resolve lane length."));
+        return false;
+    }
+
+    const float TestDistanceCm =
+        LaneLengthCm * 0.25f;
+
+    FTransform ReferenceTransform;
+    FTransform PositiveWrappedTransform;
+    FTransform NegativeWrappedTransform;
+
+    const bool bReferenceEvaluated =
+        Road->EvaluateLaneAtDistance(
+            LaneHandle,
+            TestDistanceCm,
+            ReferenceTransform);
+
+    const bool bPositiveEvaluated =
+        Road->EvaluateLaneAtDistance(
+            LaneHandle,
+            TestDistanceCm + LaneLengthCm,
+            PositiveWrappedTransform);
+
+    const bool bNegativeEvaluated =
+        Road->EvaluateLaneAtDistance(
+            LaneHandle,
+            TestDistanceCm - LaneLengthCm,
+            NegativeWrappedTransform);
+
+    TestTrue(
+        TEXT("All wrapped distances evaluate"),
+        bReferenceEvaluated &&
+        bPositiveEvaluated &&
+        bNegativeEvaluated);
+
+    if (!bReferenceEvaluated ||
+        !bPositiveEvaluated ||
+        !bNegativeEvaluated)
+    {
+        return false;
+    }
+
+    TestTrue(
+        TEXT("Distance beyond length wraps"),
+        PositiveWrappedTransform.GetLocation().Equals(
+            ReferenceTransform.GetLocation(),
+            0.1f));
+
+    TestTrue(
+        TEXT("Negative distance wraps"),
+        NegativeWrappedTransform.GetLocation().Equals(
+            ReferenceTransform.GetLocation(),
+            0.1f));
+
+    return true;
+}
+
 #endif

@@ -47,6 +47,9 @@ public:
     UFUNCTION(BlueprintPure, Category = "Traffic Road|Shape")
     bool IsRoadClosedLoop() const;
 
+    UFUNCTION(BlueprintCallable, Category = "Traffic Road|Shape")
+    void SetRoadClosedLoop(bool bNewClosedLoop);
+
 private: 
 	void DrawDebugLanes() const;
 

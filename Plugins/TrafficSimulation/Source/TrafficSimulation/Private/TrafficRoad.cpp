@@ -21,9 +21,7 @@ void ATrafficRoad::OnConstruction(const FTransform& Transform)
 	Super::OnConstruction(Transform);
 
 	EnsureRoadId();
-	RoadSpline->SetClosedLoop(bClosedLoop);
-	RebuildGeneratedLanes();
-	RebuildRoadSurface();
+	SetRoadClosedLoop(bClosedLoop);
 }
 
 void ATrafficRoad::Tick(float DeltaSeconds)
@@ -540,4 +538,18 @@ bool ATrafficRoad::GetLaneLength(
 bool ATrafficRoad::IsRoadClosedLoop() const
 {
 	return RoadSpline && RoadSpline->IsClosedLoop();
+}
+
+void ATrafficRoad::SetRoadClosedLoop(bool bNewClosedLoop)
+{
+	if (!RoadSpline)
+	{
+		return;
+	}
+
+	bClosedLoop = bNewClosedLoop;
+	RoadSpline->SetClosedLoop(bClosedLoop);
+
+	RebuildGeneratedLanes();
+	RebuildRoadSurface();
 }
