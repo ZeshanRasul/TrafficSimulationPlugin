@@ -210,4 +210,111 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
     return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FTrafficRoadOpenDistanceClampingTest,
+    "TrafficSimulation.Road.OpenDistanceClamping",
+    EAutomationTestFlags::EditorContext |
+    EAutomationTestFlags::EngineFilter)
+
+    bool FTrafficRoadOpenDistanceClampingTest::RunTest(
+        const FString& Parameters)
+{
+    UWorld* World =
+        FAutomationEditorCommonUtils::CreateNewMap();
+
+    TestNotNull(TEXT("Test world exists"), World);
+
+    if (!World)
+    {
+        return false;
+    }
+
+    ATrafficRoad* Road =
+        World->SpawnActor<ATrafficRoad>();
+
+    TestNotNull(TEXT("Road was spawned"), Road);
+
+    if (!Road)
+    {
+        return false;
+    }
+
+    const FTrafficLaneHandle LaneHandle =
+        Road->GetLaneHandle(0);
+
+    float LaneLengthCm = 0.0f;
+
+    const bool bLengthResolved =
+        Road->GetLaneLength(
+            LaneHandle,
+            LaneLengthCm);
+
+    TestTrue(
+        TEXT("Lane length resolves"),
+        bLengthResolved);
+
+    if (!bLengthResolved)
+    {
+        return false;
+    }
+
+    FTransform StartTransform;
+    FTransform NegativeTransform;
+    FTransform EndTransform;
+    FTransform BeyondEndTransform;
+
+    const bool bStartEvaluated =
+        Road->EvaluateLaneAtDistance(
+            LaneHandle,
+            0.0f,
+            StartTransform);
+
+    const bool bNegativeEvaluated =
+        Road->EvaluateLaneAtDistance(
+            LaneHandle,
+            -500.0f,
+            NegativeTransform);
+
+    const bool bEndEvaluated =
+        Road->EvaluateLaneAtDistance(
+            LaneHandle,
+            LaneLengthCm,
+            EndTransform);
+
+    const bool bBeyondEndEvaluated =
+        Road->EvaluateLaneAtDistance(
+            LaneHandle,
+            LaneLengthCm + 500.0f,
+            BeyondEndTransform);
+
+    TestTrue(
+        TEXT("All distances evaluate"),
+        bStartEvaluated &&
+        bNegativeEvaluated &&
+        bEndEvaluated &&
+        bBeyondEndEvaluated);
+
+    if (!bStartEvaluated ||
+        !bNegativeEvaluated ||
+        !bEndEvaluated ||
+        !bBeyondEndEvaluated)
+    {
+        return false;
+    }
+
+    TestTrue(
+        TEXT("Negative distance clamps to lane start"),
+        NegativeTransform.GetLocation().Equals(
+            StartTransform.GetLocation(),
+            0.1f));
+
+    TestTrue(
+        TEXT("Excess distance clamps to lane end"),
+        BeyondEndTransform.GetLocation().Equals(
+            EndTransform.GetLocation(),
+            0.1f));
+
+    return true;
+}
+
 #endif
