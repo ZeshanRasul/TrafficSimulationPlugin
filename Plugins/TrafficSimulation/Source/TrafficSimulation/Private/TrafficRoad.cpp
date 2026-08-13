@@ -553,3 +553,99 @@ void ATrafficRoad::SetRoadClosedLoop(bool bNewClosedLoop)
 	RebuildGeneratedLanes();
 	RebuildRoadSurface();
 }
+
+FTrafficRoadEndpointHandle ATrafficRoad::GetRoadEndpointHandle(
+	ETrafficRoadEndpoint Endpoint) const
+{
+	FTrafficRoadEndpointHandle Handle;
+
+	if (RoadId.IsValid())
+	{
+		Handle.RoadId = RoadId;
+		Handle.Endpoint = Endpoint;
+	}
+
+	return Handle;
+}
+
+FTrafficLaneEndpointHandle ATrafficRoad::GetLaneEndpointHandle(
+	int32 LaneIndex,
+	ETrafficLaneEndpoint Endpoint) const
+{
+	FTrafficLaneEndpointHandle Handle;
+
+	Handle.Lane = GetLaneHandle(LaneIndex);
+
+	if (Handle.Lane.IsValid())
+	{
+		Handle.Endpoint = Endpoint;
+	}
+
+	return Handle;
+}
+
+bool ATrafficRoad::EvaluateRoadEndpoint(
+	FTrafficRoadEndpointHandle EndpointHandle,
+	FTransform& OutTransform) const
+{
+	OutTransform = FTransform::Identity;
+
+	if (!RoadSpline ||
+		!EndpointHandle.IsValid() ||
+		EndpointHandle.RoadId != RoadId)
+	{
+		return false;
+	}
+
+	const float DistanceAlongSpline =
+		EndpointHandle.Endpoint ==
+		ETrafficRoadEndpoint::Start
+		? 0.0f
+		: RoadSpline->GetSplineLength();
+
+	OutTransform =
+		RoadSpline->GetTransformAtDistanceAlongSpline(
+			DistanceAlongSpline,
+			ESplineCoordinateSpace::World,
+			true);
+
+	return true;
+}
+
+bool ATrafficRoad::EvaluateLaneEndpoint(
+	FTrafficLaneEndpointHandle EndpointHandle,
+	FTransform& OutTransform) const
+{
+	OutTransform = FTransform::Identity;
+
+	if (!EndpointHandle.IsValid() ||
+		EndpointHandle.Lane.RoadId != RoadId)
+	{
+		return false;
+	}
+
+	float LaneLengthCm = 0.0f;
+
+	if (!GetLaneLength(
+		EndpointHandle.Lane,
+		LaneLengthCm))
+	{
+		return false;
+	}
+
+	const float DistanceAlongLane =
+		EndpointHandle.Endpoint ==
+		ETrafficLaneEndpoint::Entry
+		? 0.0f
+		: LaneLengthCm;
+
+	return EvaluateLaneAtDistance(
+		EndpointHandle.Lane,
+		DistanceAlongLane,
+		OutTransform);
+}
+
+int32 ATrafficRoad::GetLaneCount() const
+{
+	return LaneCount;
+}

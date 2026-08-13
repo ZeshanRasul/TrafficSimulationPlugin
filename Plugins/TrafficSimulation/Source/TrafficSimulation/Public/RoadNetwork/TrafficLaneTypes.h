@@ -111,3 +111,140 @@ struct TRAFFICSIMULATION_API FTrafficLaneGenerationSettings
         meta = (ClampMin = "10.0", UIMin = "10.0", Units = "cm"))
     float SampleSpacingCm = 200.0f;
 };
+
+UENUM(BlueprintType)
+enum class ETrafficRoadEndpoint : uint8
+{
+    Start UMETA(DisplayName = "Start"),
+    End UMETA(DisplayName = "End")
+};
+
+USTRUCT(BlueprintType)
+struct TRAFFICSIMULATION_API FTrafficRoadEndpointHandle
+{
+    GENERATED_BODY()
+
+    UPROPERTY(
+        VisibleAnywhere,
+        BlueprintReadOnly,
+        Category = "Traffic Road Endpoint")
+    FGuid RoadId;
+
+    UPROPERTY(
+        VisibleAnywhere,
+        BlueprintReadOnly,
+        Category = "Traffic Road Endpoint")
+    ETrafficRoadEndpoint Endpoint =
+        ETrafficRoadEndpoint::Start;
+
+    bool IsValid() const
+    {
+        return RoadId.IsValid();
+    }
+
+    friend bool operator==(
+        const FTrafficRoadEndpointHandle& Left,
+        const FTrafficRoadEndpointHandle& Right)
+    {
+        return Left.RoadId == Right.RoadId &&
+            Left.Endpoint == Right.Endpoint;
+    }
+
+    friend bool operator!=(
+        const FTrafficRoadEndpointHandle& Left,
+        const FTrafficRoadEndpointHandle& Right)
+    {
+        return !(Left == Right);
+    }
+};
+
+FORCEINLINE uint32 GetTypeHash(
+    const FTrafficRoadEndpointHandle& Handle)
+{
+    return HashCombine(
+        GetTypeHash(Handle.RoadId),
+        GetTypeHash(
+            static_cast<uint8>(Handle.Endpoint)));
+}
+
+UENUM(BlueprintType)
+enum class ETrafficLaneEndpoint : uint8
+{
+    Entry UMETA(DisplayName = "Entry"),
+    Exit UMETA(DisplayName = "Exit")
+};
+
+USTRUCT(BlueprintType)
+struct TRAFFICSIMULATION_API FTrafficLaneEndpointHandle
+{
+    GENERATED_BODY()
+
+    UPROPERTY(
+        VisibleAnywhere,
+        BlueprintReadOnly,
+        Category = "Traffic Lane Endpoint")
+    FTrafficLaneHandle Lane;
+
+    UPROPERTY(
+        VisibleAnywhere,
+        BlueprintReadOnly,
+        Category = "Traffic Lane Endpoint")
+    ETrafficLaneEndpoint Endpoint =
+        ETrafficLaneEndpoint::Entry;
+
+    bool IsValid() const
+    {
+        return Lane.IsValid();
+    }
+
+    friend bool operator==(
+        const FTrafficLaneEndpointHandle& Left,
+        const FTrafficLaneEndpointHandle& Right)
+    {
+        return Left.Lane == Right.Lane &&
+            Left.Endpoint == Right.Endpoint;
+    }
+
+    friend bool operator!=(
+        const FTrafficLaneEndpointHandle& Left,
+        const FTrafficLaneEndpointHandle& Right)
+    {
+        return !(Left == Right);
+    }
+};
+
+FORCEINLINE uint32 GetTypeHash(
+    const FTrafficLaneEndpointHandle& Handle)
+{
+    return HashCombine(
+        GetTypeHash(Handle.Lane),
+        GetTypeHash(
+            static_cast<uint8>(Handle.Endpoint)));
+}
+
+USTRUCT(BlueprintType)
+struct TRAFFICSIMULATION_API FTrafficLaneConnection
+{
+    GENERATED_BODY()
+
+    UPROPERTY(
+        EditAnywhere,
+        BlueprintReadWrite,
+        Category = "Traffic Lane Connection")
+    FTrafficLaneEndpointHandle Source;
+
+    UPROPERTY(
+        EditAnywhere,
+        BlueprintReadWrite,
+        Category = "Traffic Lane Connection")
+    FTrafficLaneEndpointHandle Target;
+
+    bool IsValid() const
+    {
+        return Source.IsValid() &&
+            Target.IsValid() &&
+            Source.Endpoint == ETrafficLaneEndpoint::Exit &&
+            Target.Endpoint == ETrafficLaneEndpoint::Entry &&
+            Source.Lane != Target.Lane;
+    }
+};

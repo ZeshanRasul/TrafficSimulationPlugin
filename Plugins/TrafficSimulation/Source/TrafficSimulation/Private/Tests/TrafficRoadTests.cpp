@@ -418,4 +418,92 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
     return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+    FTrafficRoadLaneEndpointTest,
+    "TrafficSimulation.Road.LaneEndpoints",
+    EAutomationTestFlags::EditorContext |
+    EAutomationTestFlags::EngineFilter)
+
+    bool FTrafficRoadLaneEndpointTest::RunTest(
+        const FString& Parameters)
+{
+    UWorld* World =
+        FAutomationEditorCommonUtils::CreateNewMap();
+
+    if (!TestNotNull(TEXT("Test world exists"), World))
+    {
+        return false;
+    }
+
+    ATrafficRoad* Road =
+        World->SpawnActor<ATrafficRoad>();
+
+    if (!TestNotNull(TEXT("Road was spawned"), Road))
+    {
+        return false;
+    }
+
+    const FTrafficLaneEndpointHandle ForwardEntry =
+        Road->GetLaneEndpointHandle(
+            0,
+            ETrafficLaneEndpoint::Entry);
+
+    const FTrafficLaneEndpointHandle ForwardExit =
+        Road->GetLaneEndpointHandle(
+            0,
+            ETrafficLaneEndpoint::Exit);
+
+    const FTrafficLaneEndpointHandle ReverseEntry =
+        Road->GetLaneEndpointHandle(
+            1,
+            ETrafficLaneEndpoint::Entry);
+
+    const FTrafficLaneEndpointHandle ReverseExit =
+        Road->GetLaneEndpointHandle(
+            1,
+            ETrafficLaneEndpoint::Exit);
+
+    FTransform ForwardEntryTransform;
+    FTransform ForwardExitTransform;
+    FTransform ReverseEntryTransform;
+    FTransform ReverseExitTransform;
+
+    const bool bEvaluated =
+        Road->EvaluateLaneEndpoint(
+            ForwardEntry,
+            ForwardEntryTransform) &&
+        Road->EvaluateLaneEndpoint(
+            ForwardExit,
+            ForwardExitTransform) &&
+        Road->EvaluateLaneEndpoint(
+            ReverseEntry,
+            ReverseEntryTransform) &&
+        Road->EvaluateLaneEndpoint(
+            ReverseExit,
+            ReverseExitTransform);
+
+    TestTrue(
+        TEXT("All lane endpoints evaluate"),
+        bEvaluated);
+
+    if (!bEvaluated)
+    {
+        return false;
+    }
+
+    TestTrue(
+        TEXT("Forward entry corresponds to reverse exit"),
+        ForwardEntryTransform.GetLocation().Equals(
+            ReverseExitTransform.GetLocation(),
+            400.0f));
+
+    TestTrue(
+        TEXT("Forward exit corresponds to reverse entry"),
+        ForwardExitTransform.GetLocation().Equals(
+            ReverseEntryTransform.GetLocation(),
+            400.0f));
+
+    return true;
+}
+
 #endif

@@ -8,6 +8,7 @@
 class ATrafficRoad;
 class USceneComponent;
 class UStaticMeshComponent;
+class ATrafficRoadNetwork;
 
 UENUM(BlueprintType)
 enum class ETrafficLaneEndBehavior : uint8
@@ -32,6 +33,8 @@ private:
     bool InitializeLane();
     void AdvanceAlongLane(float DeltaSeconds);
     void UpdateTransform();
+    bool TryTransitionToNextLane(float OverflowDistanceCm);
+    void HandleLaneEnd();
 
     UPROPERTY(VisibleAnywhere, Category = "Traffic Vehicle")
     TObjectPtr<USceneComponent> SceneRoot;
@@ -73,6 +76,11 @@ private:
         Category = "Traffic Vehicle|Presentation",
         meta = (Units = "cm"))
     float HeightOffsetCm = 60.0f;
+
+    UPROPERTY(
+        EditInstanceOnly,
+        Category = "Traffic Vehicle|Network")
+    TObjectPtr<ATrafficRoadNetwork> RoadNetwork;
 
     FTrafficLaneHandle LaneHandle;
     float DistanceAlongLaneCm = 0.0f;

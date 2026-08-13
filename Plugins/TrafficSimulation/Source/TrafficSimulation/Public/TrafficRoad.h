@@ -44,11 +44,33 @@ public:
         FTrafficLaneHandle LaneHandle,
         float& OutLengthCm) const;
 
+    UFUNCTION(BlueprintPure, Category = "Traffic Road|Lanes")
+    int32 GetLaneCount() const;
+
     UFUNCTION(BlueprintPure, Category = "Traffic Road|Shape")
     bool IsRoadClosedLoop() const;
 
     UFUNCTION(BlueprintCallable, Category = "Traffic Road|Shape")
     void SetRoadClosedLoop(bool bNewClosedLoop);
+
+    UFUNCTION(BlueprintPure, Category = "Traffic Road|Endpoints")
+    FTrafficRoadEndpointHandle GetRoadEndpointHandle(
+        ETrafficRoadEndpoint Endpoint) const;
+
+    UFUNCTION(BlueprintPure, Category = "Traffic Road|Endpoints")
+    FTrafficLaneEndpointHandle GetLaneEndpointHandle(
+        int32 LaneIndex,
+        ETrafficLaneEndpoint Endpoint) const;
+
+    UFUNCTION(BlueprintPure, Category = "Traffic Road|Endpoints")
+    bool EvaluateRoadEndpoint(
+        FTrafficRoadEndpointHandle EndpointHandle,
+        FTransform& OutTransform) const;
+
+    UFUNCTION(BlueprintPure, Category = "Traffic Road|Endpoints")
+    bool EvaluateLaneEndpoint(
+        FTrafficLaneEndpointHandle EndpointHandle,
+        FTransform& OutTransform) const;
 
 private: 
 	void DrawDebugLanes() const;
