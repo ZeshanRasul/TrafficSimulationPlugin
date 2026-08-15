@@ -36,12 +36,22 @@ void ATrafficLaneFollower::BeginPlay()
 		return;
 	}
 
+	if (IsValid(RoadNetwork))
+	{
+		RoadNetwork->RegisterVehicle(this);
+	}
+
 	UpdateTransform();
 }
 
 void ATrafficLaneFollower::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
 	ReleaseJunctionReservation();
+
+	if (IsValid(RoadNetwork))
+	{
+		RoadNetwork->UnregisterVehicle(this);
+	}
 
 	Super::EndPlay(EndPlayReason);
 }
@@ -195,7 +205,7 @@ bool ATrafficLaneFollower::IsYieldingToJunction() const
 
 void ATrafficLaneFollower::UpdateSpeed(float DeltaSeconds)
 {
-	bool bMustStop = false;
+	float TargetSpeedCmPerSecond = SpeedCmPerSecond;
 
 	if (IsYieldingToJunction() && SpeedCmPerSecond > 0.0f)
 	{
@@ -214,12 +224,51 @@ void ATrafficLaneFollower::UpdateSpeed(float DeltaSeconds)
 				this,
 				PendingConnectorIndex);
 
-			bMustStop = !bEntryGranted;
+			if (!bEntryGranted)
+			{
+				TargetSpeedCmPerSecond = 0.0f;
+			}
 		}
 	}
 
-	const float TargetSpeedCmPerSecond =
-		bMustStop ? 0.0f : SpeedCmPerSecond;
+	// Car-following: never let this vehicle close on whatever is ahead of it,
+	// whether that is still on this lane or has already crossed onto the
+	// successor lane (a queue at a junction spans that boundary).
+	if (IsValid(RoadNetwork))
+	{
+		const FTrafficLaneHandle* NextLaneHandle =
+			bPendingSuccessorValid ? &PendingSuccessor.Lane : nullptr;
+
+		float ForwardGapCm = 0.0f;
+
+		if (RoadNetwork->FindForwardGapCm(
+			this,
+			LaneHandle,
+			DistanceAlongLaneCm,
+			LaneLengthCm,
+			NextLaneHandle,
+			ForwardGapCm))
+		{
+			if (ForwardGapCm <= MinFollowingGapCm)
+			{
+				TargetSpeedCmPerSecond = 0.0f;
+			}
+			else if (ForwardGapCm < DesiredFollowingGapCm)
+			{
+				const float Alpha = FMath::Clamp(
+					(ForwardGapCm - MinFollowingGapCm) /
+					FMath::Max(
+						DesiredFollowingGapCm - MinFollowingGapCm,
+						1.0f),
+					0.0f,
+					1.0f);
+
+				TargetSpeedCmPerSecond = FMath::Min(
+					TargetSpeedCmPerSecond,
+					SpeedCmPerSecond * Alpha);
+			}
+		}
+	}
 
 	const float RateCmPerSecondSquared =
 		TargetSpeedCmPerSecond > CurrentSpeedCmPerSecond

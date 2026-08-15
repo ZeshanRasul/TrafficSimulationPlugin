@@ -97,6 +97,31 @@ private:
     UPROPERTY(EditAnywhere, Category = "Traffic Demo|Signals")
     bool bUseTrafficSignals = false;
 
+    // Leave unset to keep the junction's own default sphere mesh.
+    UPROPERTY(
+        EditAnywhere,
+        Category = "Traffic Demo|Signals",
+        meta = (EditCondition = "bUseTrafficSignals"))
+    TObjectPtr<UStaticMesh> SignalMesh;
+
+    UPROPERTY(
+        EditAnywhere,
+        Category = "Traffic Demo|Signals",
+        meta = (EditCondition = "bUseTrafficSignals"))
+    TObjectPtr<UMaterialInterface> RedSignalMaterial;
+
+    UPROPERTY(
+        EditAnywhere,
+        Category = "Traffic Demo|Signals",
+        meta = (EditCondition = "bUseTrafficSignals"))
+    TObjectPtr<UMaterialInterface> YellowSignalMaterial;
+
+    UPROPERTY(
+        EditAnywhere,
+        Category = "Traffic Demo|Signals",
+        meta = (EditCondition = "bUseTrafficSignals"))
+    TObjectPtr<UMaterialInterface> GreenSignalMaterial;
+
     UPROPERTY(EditAnywhere, Category = "Traffic Demo|Vehicles")
     TSubclassOf<ATrafficLaneFollower> VehicleClass;
 

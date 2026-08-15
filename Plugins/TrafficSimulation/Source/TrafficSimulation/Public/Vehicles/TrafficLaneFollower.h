@@ -45,6 +45,26 @@ public:
         float InSpeedCmPerSecond,
         ATrafficRoadNetwork* InRoadNetwork);
 
+    // Used by the network's forward-gap search to place and size this
+    // vehicle relative to others sharing a lane.
+    UFUNCTION(BlueprintPure, Category = "Traffic Vehicle")
+    FTrafficLaneHandle GetCurrentLaneHandle() const
+    {
+        return LaneHandle;
+    }
+
+    UFUNCTION(BlueprintPure, Category = "Traffic Vehicle")
+    float GetDistanceAlongLaneCm() const
+    {
+        return DistanceAlongLaneCm;
+    }
+
+    UFUNCTION(BlueprintPure, Category = "Traffic Vehicle")
+    float GetVehicleLengthCm() const
+    {
+        return VehicleLengthCm;
+    }
+
 private:
     bool InitializeLane();
 
@@ -114,6 +134,28 @@ private:
         Category = "Traffic Vehicle|Movement",
         meta = (ClampMin = "0.0", UIMin = "0.0", Units = "cm"))
     float StopLineBufferCm = 150.0f;
+
+    // Used for bumper-to-bumper gap math, not for physical collision.
+    UPROPERTY(
+        EditAnywhere,
+        Category = "Traffic Vehicle|Following",
+        meta = (ClampMin = "10.0", UIMin = "10.0", Units = "cm"))
+    float VehicleLengthCm = 450.0f;
+
+    // Below this gap to the vehicle ahead, this vehicle comes to a full stop.
+    UPROPERTY(
+        EditAnywhere,
+        Category = "Traffic Vehicle|Following",
+        meta = (ClampMin = "0.0", UIMin = "0.0", Units = "cm"))
+    float MinFollowingGapCm = 200.0f;
+
+    // Above this gap, following has no effect on speed; between the two, speed
+    // is scaled down linearly.
+    UPROPERTY(
+        EditAnywhere,
+        Category = "Traffic Vehicle|Following",
+        meta = (ClampMin = "10.0", UIMin = "10.0", Units = "cm"))
+    float DesiredFollowingGapCm = 800.0f;
 
     UPROPERTY(
         EditAnywhere,

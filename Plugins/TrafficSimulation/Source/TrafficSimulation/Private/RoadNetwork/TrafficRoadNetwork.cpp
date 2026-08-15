@@ -3,6 +3,7 @@
 #include "DrawDebugHelpers.h"
 #include "Junctions/TrafficJunction.h"
 #include "TrafficRoad.h"
+#include "Vehicles/TrafficLaneFollower.h"
 
 namespace
 {
@@ -581,6 +582,104 @@ void ATrafficRoadNetwork::ClearConnections()
     Connections.Reset();
 
     RebuildNetwork();
+}
+
+void ATrafficRoadNetwork::RegisterVehicle(ATrafficLaneFollower* Vehicle)
+{
+    if (!IsValid(Vehicle))
+    {
+        return;
+    }
+
+    RegisteredVehicles.AddUnique(Vehicle);
+}
+
+void ATrafficRoadNetwork::UnregisterVehicle(ATrafficLaneFollower* Vehicle)
+{
+    RegisteredVehicles.RemoveAll(
+        [Vehicle](const TWeakObjectPtr<ATrafficLaneFollower>& Entry)
+        {
+            return !Entry.IsValid() || Entry.Get() == Vehicle;
+        });
+}
+
+bool ATrafficRoadNetwork::FindForwardGapCm(
+    const ATrafficLaneFollower* Requester,
+    FTrafficLaneHandle LaneHandle,
+    float DistanceAlongLaneCm,
+    float LaneLengthCm,
+    const FTrafficLaneHandle* NextLaneHandle,
+    float& OutGapCm) const
+{
+    OutGapCm = TNumericLimits<float>::Max();
+
+    bool bFound = false;
+
+    const float RequesterHalfLengthCm =
+        IsValid(Requester)
+        ? Requester->GetVehicleLengthCm() * 0.5f
+        : 0.0f;
+
+    for (const TWeakObjectPtr<ATrafficLaneFollower>& WeakVehicle :
+        RegisteredVehicles)
+    {
+        ATrafficLaneFollower* Other = WeakVehicle.Get();
+
+        if (!IsValid(Other) || Other == Requester)
+        {
+            continue;
+        }
+
+        const FTrafficLaneHandle OtherLaneHandle =
+            Other->GetCurrentLaneHandle();
+
+        const float OtherHalfLengthCm =
+            Other->GetVehicleLengthCm() * 0.5f;
+
+        float CandidateGapCm = 0.0f;
+        bool bCandidateValid = false;
+
+        if (OtherLaneHandle == LaneHandle)
+        {
+            const float OtherDistanceCm =
+                Other->GetDistanceAlongLaneCm();
+
+            if (OtherDistanceCm >= DistanceAlongLaneCm)
+            {
+                CandidateGapCm =
+                    (OtherDistanceCm - DistanceAlongLaneCm) -
+                    RequesterHalfLengthCm -
+                    OtherHalfLengthCm;
+
+                bCandidateValid = true;
+            }
+        }
+        else if (NextLaneHandle && OtherLaneHandle == *NextLaneHandle)
+        {
+            // The other vehicle has already crossed onto what this vehicle is
+            // about to enter, so its gap is measured across the boundary:
+            // whatever remains of this lane, plus how far the other vehicle
+            // already is into the next one.
+            const float RemainingOnCurrentLaneCm =
+                LaneLengthCm - DistanceAlongLaneCm;
+
+            CandidateGapCm =
+                RemainingOnCurrentLaneCm +
+                Other->GetDistanceAlongLaneCm() -
+                RequesterHalfLengthCm -
+                OtherHalfLengthCm;
+
+            bCandidateValid = true;
+        }
+
+        if (bCandidateValid)
+        {
+            bFound = true;
+            OutGapCm = FMath::Min(OutGapCm, CandidateGapCm);
+        }
+    }
+
+    return bFound;
 }
 
 int32 ATrafficRoadNetwork::GetConnectionCount() const

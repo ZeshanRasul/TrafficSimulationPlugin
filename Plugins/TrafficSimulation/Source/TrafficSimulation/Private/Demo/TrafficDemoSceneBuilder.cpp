@@ -318,6 +318,17 @@ void ATrafficDemoSceneBuilder::BuildDemoScene()
         // the network pick up the junction's approach/departure links.
         Network->AddJunction(Junction);
         Junction->RebuildJunction();
+
+        if (bUseTrafficSignals)
+        {
+            // Applied after RebuildJunction so the indicator placement pass
+            // it triggers has real connectors to place lights against.
+            Junction->SetSignalVisuals(
+                SignalMesh,
+                RedSignalMaterial,
+                YellowSignalMaterial,
+                GreenSignalMaterial);
+        }
     }
 
     if (IsValid(VehicleClass))

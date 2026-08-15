@@ -10,6 +10,20 @@ class ATrafficRoad;
 class ATrafficRoadNetwork;
 class USceneComponent;
 class UBillboardComponent;
+class UStaticMesh;
+class UStaticMeshComponent;
+class UMaterialInterface;
+
+UENUM(BlueprintType)
+enum class ETrafficSignalState : uint8
+{
+    // No signal is controlling this approach; treated as an always-clear
+    // give-way, not a light colour.
+    None UMETA(DisplayName = "None"),
+    Red UMETA(DisplayName = "Red"),
+    Yellow UMETA(DisplayName = "Yellow"),
+    Green UMETA(DisplayName = "Green")
+};
 
 // One drivable path through the junction box, from an approach lane's exit to
 // a departure lane's entry. Connectors are lanes in their own right: they carry
@@ -170,6 +184,11 @@ public:
     UFUNCTION(BlueprintPure, Category = "Traffic Junction|Signals")
     int32 GetActivePhaseIndex() const;
 
+    // Red/Yellow/Green for a whole approach, including the all-red clearance
+    // window. Drives both IsConnectorSignalGreen and the visible light meshes.
+    UFUNCTION(BlueprintPure, Category = "Traffic Junction|Signals")
+    ETrafficSignalState GetApproachSignalState(int32 ApproachIndex) const;
+
     // Lets a procedural builder size the approach search radius to match a
     // generated layout before the first RebuildJunction call.
     UFUNCTION(BlueprintCallable, Category = "Traffic Junction|Generation")
@@ -179,6 +198,15 @@ public:
     void ConfigureSignals(
         bool bEnable,
         const TArray<FTrafficSignalPhase>& NewPhases);
+
+    // Lets a procedural builder supply signal visuals so they survive a
+    // rebuild instead of being lost with the old junction instance.
+    UFUNCTION(BlueprintCallable, Category = "Traffic Junction|Signals")
+    void SetSignalVisuals(
+        UStaticMesh* NewSignalMesh,
+        UMaterialInterface* NewRedMaterial,
+        UMaterialInterface* NewYellowMaterial,
+        UMaterialInterface* NewGreenMaterial);
 
     UPROPERTY(
         EditInstanceOnly,
@@ -219,6 +247,10 @@ private:
 
     void AdvanceSignals(float DeltaSeconds);
 
+    void RebuildSignalIndicators();
+
+    void UpdateSignalIndicatorColours();
+
     void DrawDebugJunction() const;
 
     static ETrafficTurnType ClassifyTurn(
@@ -254,6 +286,14 @@ private:
         meta = (ClampMin = "10.0", UIMin = "10.0", Units = "cm"))
     float ConnectorSampleSpacingCm = 100.0f;
 
+    // Paths closer than this at any point conflict even if their centrelines
+    // never literally cross. Should be roughly a lane width.
+    UPROPERTY(
+        EditAnywhere,
+        Category = "Traffic Junction|Generation",
+        meta = (ClampMin = "10.0", UIMin = "10.0", Units = "cm"))
+    float ConflictClearanceCm = 350.0f;
+
     // Bezier handle length as a fraction of the straight-line chord. 0.55
     // approximates a circular arc; lower values tighten the turn.
     UPROPERTY(
@@ -277,6 +317,73 @@ private:
         Category = "Traffic Junction|Signals",
         meta = (EditCondition = "bUseTrafficSignals"))
     TArray<FTrafficSignalPhase> SignalPhases;
+
+    // One small mesh per approach, placed at its stop line, recoloured as the
+    // active phase changes. Only spawned when bUseTrafficSignals is set.
+    UPROPERTY(
+        EditAnywhere,
+        Category = "Traffic Junction|Signals",
+        meta = (EditCondition = "bUseTrafficSignals"))
+    TObjectPtr<UStaticMesh> SignalMesh;
+
+    UPROPERTY(
+        EditAnywhere,
+        Category = "Traffic Junction|Signals",
+        meta = (EditCondition = "bUseTrafficSignals"))
+    TObjectPtr<UMaterialInterface> RedSignalMaterial;
+
+    UPROPERTY(
+        EditAnywhere,
+        Category = "Traffic Junction|Signals",
+        meta = (EditCondition = "bUseTrafficSignals"))
+    TObjectPtr<UMaterialInterface> YellowSignalMaterial;
+
+    UPROPERTY(
+        EditAnywhere,
+        Category = "Traffic Junction|Signals",
+        meta = (EditCondition = "bUseTrafficSignals"))
+    TObjectPtr<UMaterialInterface> GreenSignalMaterial;
+
+    UPROPERTY(
+        EditAnywhere,
+        Category = "Traffic Junction|Signals",
+        meta = (
+            EditCondition = "bUseTrafficSignals",
+            ClampMin = "50.0",
+            UIMin = "50.0",
+            Units = "cm"))
+    float SignalHeightCm = 350.0f;
+
+    // How far back from the stop line the light sits, so it reads to an
+    // approaching driver instead of hovering over the intersection itself.
+    UPROPERTY(
+        EditAnywhere,
+        Category = "Traffic Junction|Signals",
+        meta = (
+            EditCondition = "bUseTrafficSignals",
+            ClampMin = "0.0",
+            UIMin = "0.0",
+            Units = "cm"))
+    float SignalSetbackCm = 250.0f;
+
+    UPROPERTY(
+        EditAnywhere,
+        Category = "Traffic Junction|Signals",
+        meta = (
+            EditCondition = "bUseTrafficSignals",
+            ClampMin = "10.0",
+            UIMin = "10.0",
+            Units = "cm"))
+    float SignalMeshScaleCm = 50.0f;
+
+    UPROPERTY(Transient)
+    TArray<TObjectPtr<UStaticMeshComponent>> SignalIndicators;
+
+    // Parallel to SignalIndicators: approaches with no connector (a dead-end
+    // spur) get no indicator, so the two arrays cannot be assumed to line up
+    // with ApproachRoads by index alone.
+    UPROPERTY(Transient)
+    TArray<int32> SignalIndicatorApproachIndices;
 
     UPROPERTY(
         EditAnywhere,

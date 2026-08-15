@@ -8,6 +8,7 @@
 
 class ATrafficRoad;
 class ATrafficJunction;
+class ATrafficLaneFollower;
 
 USTRUCT(BlueprintType)
 struct TRAFFICSIMULATION_API FTrafficNetworkValidationReport
@@ -140,6 +141,25 @@ public:
 
     UFUNCTION(BlueprintCallable, Category = "Traffic Network|Connections")
     void ClearConnections();
+
+    // Vehicles register on BeginPlay/unregister on EndPlay so the network can
+    // answer forward-gap queries without every vehicle doing its own O(N)
+    // world scan independently.
+    void RegisterVehicle(ATrafficLaneFollower* Vehicle);
+    void UnregisterVehicle(ATrafficLaneFollower* Vehicle);
+
+    // Smallest bumper-to-bumper gap ahead of (LaneHandle, DistanceAlongLaneCm)
+    // among registered vehicles, projecting onto NextLaneHandle (if given) for
+    // vehicles already past the end of the current lane. Returns false when no
+    // vehicle occupies either lane ahead of the requester.
+    bool FindForwardGapCm(
+        const ATrafficLaneFollower* Requester,
+        FTrafficLaneHandle LaneHandle,
+        float DistanceAlongLaneCm,
+        float LaneLengthCm,
+        const FTrafficLaneHandle* NextLaneHandle,
+        float& OutGapCm) const;
+
 private:
     void DrawDebugConnections() const;
 
@@ -178,4 +198,7 @@ private:
     TArray<TObjectPtr<ATrafficJunction>> Junctions;
 
     TMap<FTrafficLaneHandle, FTrafficLaneSuccessorSet> SuccessorsByLane;
+
+    UPROPERTY(Transient)
+    TArray<TWeakObjectPtr<ATrafficLaneFollower>> RegisteredVehicles;
 };

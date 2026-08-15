@@ -2,9 +2,12 @@
 
 #include "Components/BillboardComponent.h"
 #include "Components/SceneComponent.h"
+#include "Components/StaticMeshComponent.h"
 #include "DrawDebugHelpers.h"
+#include "Engine/StaticMesh.h"
 #include "RoadNetwork/TrafficRoadNetwork.h"
 #include "TrafficRoad.h"
+#include "UObject/ConstructorHelpers.h"
 
 namespace
 {
@@ -87,6 +90,16 @@ ATrafficJunction::ATrafficJunction()
         EditorIcon->SetRelativeScale3D(FVector(0.5f, 0.5f, 0.5f));
     }
 #endif
+
+    // A shipped engine asset, so signal lights render out of the box without
+    // requiring a project-specific mesh to be assigned first.
+    static ConstructorHelpers::FObjectFinder<UStaticMesh> SphereMeshFinder(
+        TEXT("/Engine/BasicShapes/Sphere.Sphere"));
+
+    if (SphereMeshFinder.Succeeded())
+    {
+        SignalMesh = SphereMeshFinder.Object;
+    }
 }
 
 void ATrafficJunction::BeginPlay()
@@ -149,6 +162,7 @@ void ATrafficJunction::Tick(float DeltaSeconds)
     Super::Tick(DeltaSeconds);
 
     AdvanceSignals(DeltaSeconds);
+    UpdateSignalIndicatorColours();
     DrawDebugJunction();
 }
 
@@ -523,6 +537,7 @@ void ATrafficJunction::RebuildJunction()
     }
 
     BuildConflictMatrix();
+    RebuildSignalIndicators();
 
     if (IsValid(RoadNetwork))
     {
@@ -537,6 +552,14 @@ bool ATrafficJunction::ConnectorsCross(
     const TArray<FTrafficLaneSample>& FirstSamples = First.Lane.Samples;
     const TArray<FTrafficLaneSample>& SecondSamples = Second.Lane.Samples;
 
+    // A literal segment crossing always conflicts. Below that, two paths that
+    // never actually cross but run closer than a lane width apart still need
+    // to be flagged - otherwise a shallow-angle near-miss (e.g. two rights
+    // sweeping almost parallel through the box) reads as clear and vehicles
+    // clip each other without either connector ever registering a conflict.
+    const float ClearanceSquaredCm =
+        FMath::Square(ConflictClearanceCm);
+
     for (int32 FirstIndex = 0;
         FirstIndex + 1 < FirstSamples.Num();
         ++FirstIndex)
@@ -550,6 +573,14 @@ bool ATrafficJunction::ConnectorsCross(
                 FirstSamples[FirstIndex + 1].Location,
                 SecondSamples[SecondIndex].Location,
                 SecondSamples[SecondIndex + 1].Location))
+            {
+                return true;
+            }
+
+            if (FVector::DistSquared(
+                FirstSamples[FirstIndex].Location,
+                SecondSamples[SecondIndex].Location) <=
+                ClearanceSquaredCm)
             {
                 return true;
             }
@@ -780,30 +811,211 @@ void ATrafficJunction::ConfigureSignals(
     ActivePhaseIndex = 0;
     PhaseElapsedSeconds = 0.0f;
     bPhaseInClearance = false;
+
+    RebuildSignalIndicators();
+}
+
+void ATrafficJunction::SetSignalVisuals(
+    UStaticMesh* NewSignalMesh,
+    UMaterialInterface* NewRedMaterial,
+    UMaterialInterface* NewYellowMaterial,
+    UMaterialInterface* NewGreenMaterial)
+{
+    if (NewSignalMesh)
+    {
+        SignalMesh = NewSignalMesh;
+    }
+
+    RedSignalMaterial = NewRedMaterial;
+    YellowSignalMaterial = NewYellowMaterial;
+    GreenSignalMaterial = NewGreenMaterial;
+
+    RebuildSignalIndicators();
 }
 
 bool ATrafficJunction::IsConnectorSignalGreen(int32 ConnectorIndex) const
 {
-    if (!bUseTrafficSignals || SignalPhases.Num() == 0)
+    if (!bUseTrafficSignals)
     {
         return true;
     }
 
-    if (!Connectors.IsValidIndex(ConnectorIndex) ||
-        !SignalPhases.IsValidIndex(ActivePhaseIndex))
+    if (!Connectors.IsValidIndex(ConnectorIndex))
     {
         return false;
     }
 
-    // Every approach is held during the clearance interval so the box empties
-    // before the next phase starts.
+    return GetApproachSignalState(Connectors[ConnectorIndex].ApproachIndex) ==
+        ETrafficSignalState::Green;
+}
+
+ETrafficSignalState ATrafficJunction::GetApproachSignalState(
+    int32 ApproachIndex) const
+{
+    if (!bUseTrafficSignals || SignalPhases.Num() == 0)
+    {
+        return ETrafficSignalState::None;
+    }
+
+    if (!SignalPhases.IsValidIndex(ActivePhaseIndex))
+    {
+        return ETrafficSignalState::Red;
+    }
+
+    const bool bIsInActivePhase =
+        SignalPhases[ActivePhaseIndex].GreenApproachIndices.Contains(
+            ApproachIndex);
+
+    // Every approach is held red during the clearance interval so the box
+    // empties before the next phase starts; the phase's own approaches show
+    // yellow first as the standard just-turned-red warning.
     if (bPhaseInClearance)
     {
-        return false;
+        return bIsInActivePhase
+            ? ETrafficSignalState::Yellow
+            : ETrafficSignalState::Red;
     }
 
-    return SignalPhases[ActivePhaseIndex].GreenApproachIndices.Contains(
-        Connectors[ConnectorIndex].ApproachIndex);
+    return bIsInActivePhase
+        ? ETrafficSignalState::Green
+        : ETrafficSignalState::Red;
+}
+
+void ATrafficJunction::RebuildSignalIndicators()
+{
+    for (UStaticMeshComponent* Indicator : SignalIndicators)
+    {
+        if (IsValid(Indicator))
+        {
+            Indicator->DestroyComponent();
+        }
+    }
+
+    SignalIndicators.Reset();
+    SignalIndicatorApproachIndices.Reset();
+
+    if (!bUseTrafficSignals || !SignalMesh)
+    {
+        return;
+    }
+
+    for (int32 ApproachIndex = 0;
+        ApproachIndex < ApproachRoads.Num();
+        ++ApproachIndex)
+    {
+        // Any connector leaving this approach shares the same stop-line
+        // transform, so the first one found is enough to place the light.
+        FTransform ApproachTransform;
+        bool bFoundTransform = false;
+
+        for (const FTrafficConnectorLane& Connector : Connectors)
+        {
+            if (Connector.ApproachIndex != ApproachIndex)
+            {
+                continue;
+            }
+
+            ATrafficRoad* Road = ApproachRoads[ApproachIndex];
+
+            bFoundTransform = IsValid(Road) &&
+                Road->EvaluateLaneEndpoint(
+                    Connector.SourceExit,
+                    ApproachTransform);
+
+            break;
+        }
+
+        // An approach with no legal connector (e.g. a stub with nowhere to
+        // go) gets no light rather than a dangling one.
+        if (!bFoundTransform)
+        {
+            continue;
+        }
+
+        UStaticMeshComponent* Indicator =
+            NewObject<UStaticMeshComponent>(
+                this,
+                NAME_None,
+                RF_Transient);
+
+        if (!Indicator)
+        {
+            continue;
+        }
+
+        Indicator->SetStaticMesh(SignalMesh);
+        Indicator->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+        Indicator->SetMobility(EComponentMobility::Movable);
+        Indicator->SetupAttachment(SceneRoot);
+        Indicator->RegisterComponent();
+
+        const FVector Forward = ApproachTransform.GetUnitAxis(EAxis::X);
+
+        // Sits back along the approach direction from the stop line, so it
+        // reads to an oncoming driver rather than hovering over the box.
+        const FVector Location =
+            ApproachTransform.GetLocation() -
+            Forward * SignalSetbackCm +
+            FVector::UpVector * SignalHeightCm;
+
+        Indicator->SetWorldLocation(Location);
+
+        // Engine basic-shape meshes are roughly 100 uu across; this assumes
+        // that scale for any mesh substituted in.
+        Indicator->SetWorldScale3D(
+            FVector(SignalMeshScaleCm / 100.0f));
+
+        SignalIndicators.Add(Indicator);
+        SignalIndicatorApproachIndices.Add(ApproachIndex);
+    }
+
+    UpdateSignalIndicatorColours();
+}
+
+void ATrafficJunction::UpdateSignalIndicatorColours()
+{
+    if (!bUseTrafficSignals)
+    {
+        return;
+    }
+
+    for (int32 Index = 0; Index < SignalIndicators.Num(); ++Index)
+    {
+        UStaticMeshComponent* Indicator = SignalIndicators[Index];
+
+        if (!IsValid(Indicator) ||
+            !SignalIndicatorApproachIndices.IsValidIndex(Index))
+        {
+            continue;
+        }
+
+        const ETrafficSignalState State =
+            GetApproachSignalState(SignalIndicatorApproachIndices[Index]);
+
+        UMaterialInterface* Material = nullptr;
+
+        switch (State)
+        {
+        case ETrafficSignalState::Green:
+            Material = GreenSignalMaterial;
+            break;
+
+        case ETrafficSignalState::Yellow:
+            Material = YellowSignalMaterial;
+            break;
+
+        case ETrafficSignalState::Red:
+        case ETrafficSignalState::None:
+        default:
+            Material = RedSignalMaterial;
+            break;
+        }
+
+        if (Material)
+        {
+            Indicator->SetMaterial(0, Material);
+        }
+    }
 }
 
 void ATrafficJunction::DrawDebugJunction() const
