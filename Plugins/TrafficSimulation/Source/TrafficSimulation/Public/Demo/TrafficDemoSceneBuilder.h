@@ -109,8 +109,16 @@ private:
     UPROPERTY(EditAnywhere, Category = "Traffic Demo|Debug")
     bool bSpawnDebugOverlay = true;
 
+    // Spawns the scripted congestion demonstration, wired to the built
+    // network and junction. Off by default so an ordinary demo scene runs on
+    // balanced signals rather than immediately starting an experiment.
+    UPROPERTY(EditAnywhere, Category = "Traffic Demo|Debug")
+    bool bSpawnCongestionExperiment = false;
+
+    // On by default so a freshly placed builder produces the signalled
+    // junction the demo is built around.
     UPROPERTY(EditAnywhere, Category = "Traffic Demo|Signals")
-    bool bUseTrafficSignals = false;
+    bool bUseTrafficSignals = true;
 
     // Leave unset to keep the junction's own default sphere mesh.
     UPROPERTY(

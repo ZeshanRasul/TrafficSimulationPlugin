@@ -173,6 +173,15 @@ public:
     UFUNCTION(BlueprintPure, Category = "Traffic Junction|Signals")
     int32 GetActivePhaseIndex() const;
 
+    // Total vehicles cleared into the junction since it was built. Sampling
+    // the delta over time gives the junction's actual throughput, which is
+    // the ceiling on how fast any queue can drain.
+    UFUNCTION(BlueprintPure, Category = "Traffic Junction|Arbitration")
+    int32 GetTotalGrantsIssued() const
+    {
+        return TotalGrantsIssued;
+    }
+
     // Red/Yellow/Green for a whole approach, including the all-red clearance
     // window. Drives both IsConnectorSignalGreen and the visible light meshes.
     UFUNCTION(BlueprintPure, Category = "Traffic Junction|Signals")
@@ -410,6 +419,8 @@ private:
     TArray<FTrafficJunctionReservation> Reservations;
 
     uint64 NextTicket = 1;
+
+    int32 TotalGrantsIssued = 0;
 
     int32 ActivePhaseIndex = 0;
     float PhaseElapsedSeconds = 0.0f;

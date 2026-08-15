@@ -2,8 +2,10 @@
 
 #include "Components/SceneComponent.h"
 #include "Debug/TrafficDebugOverlay.h"
+#include "Demo/TrafficCongestionExperiment.h"
 #include "Engine/StaticMesh.h"
 #include "Junctions/TrafficJunction.h"
+#include "Materials/MaterialInterface.h"
 #include "RoadNetwork/TrafficRoadNetwork.h"
 #include "TrafficRoad.h"
 #include "UObject/ConstructorHelpers.h"
@@ -16,14 +18,62 @@ ATrafficDemoSceneBuilder::ATrafficDemoSceneBuilder()
     SceneRoot = CreateDefaultSubobject<USceneComponent>(TEXT("SceneRoot"));
     SetRootComponent(SceneRoot);
 
-    // A shipped engine asset, so the ring is visible out of the box without
-    // requiring a project-specific mesh to be assigned first.
-    static ConstructorHelpers::FObjectFinder<UStaticMesh> PlaneMeshFinder(
-        TEXT("/Engine/BasicShapes/Plane.Plane"));
+    // Defaults are resolved here so a freshly placed builder produces a
+    // complete scene without any assets having to be assigned by hand. Every
+    // one of these remains overridable in the details panel.
 
-    if (PlaneMeshFinder.Succeeded())
+    // A cube rather than a plane: the road surface is extruded along the
+    // spline, so a solid shape gives the carriageway real thickness.
+    static ConstructorHelpers::FObjectFinder<UStaticMesh> CubeMeshFinder(
+        TEXT("/Engine/BasicShapes/Cube.Cube"));
+
+    if (CubeMeshFinder.Succeeded())
     {
-        RoadSurfaceMesh = PlaneMeshFinder.Object;
+        RoadSurfaceMesh = CubeMeshFinder.Object;
+    }
+
+    static ConstructorHelpers::FObjectFinder<UStaticMesh> SphereMeshFinder(
+        TEXT("/Engine/BasicShapes/Sphere.Sphere"));
+
+    if (SphereMeshFinder.Succeeded())
+    {
+        SignalMesh = SphereMeshFinder.Object;
+    }
+
+    // Placeholder only. No road surface material exists in the project yet,
+    // so this falls back to the engine's plain shape material; point
+    // RoadSurfaceMaterial at the real asset once it is saved.
+    static ConstructorHelpers::FObjectFinder<UMaterialInterface>
+        RoadMaterialFinder(
+            TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial"));
+
+    if (RoadMaterialFinder.Succeeded())
+    {
+        RoadSurfaceMaterial = RoadMaterialFinder.Object;
+    }
+
+    static ConstructorHelpers::FObjectFinder<UMaterialInterface>
+        RedMaterialFinder(TEXT("/Game/Materials/Red.Red"));
+
+    if (RedMaterialFinder.Succeeded())
+    {
+        RedSignalMaterial = RedMaterialFinder.Object;
+    }
+
+    static ConstructorHelpers::FObjectFinder<UMaterialInterface>
+        YellowMaterialFinder(TEXT("/Game/Materials/Yellow.Yellow"));
+
+    if (YellowMaterialFinder.Succeeded())
+    {
+        YellowSignalMaterial = YellowMaterialFinder.Object;
+    }
+
+    static ConstructorHelpers::FObjectFinder<UMaterialInterface>
+        GreenMaterialFinder(TEXT("/Game/Materials/Green.Green"));
+
+    if (GreenMaterialFinder.Succeeded())
+    {
+        GreenSignalMaterial = GreenMaterialFinder.Object;
     }
 }
 
@@ -378,6 +428,21 @@ void ATrafficDemoSceneBuilder::BuildDemoScene()
             Overlay->RoadNetwork = Network;
 
             SpawnedActors.Add(Overlay);
+        }
+    }
+
+    if (bSpawnCongestionExperiment)
+    {
+        ATrafficCongestionExperiment* Experiment =
+            World->SpawnActor<ATrafficCongestionExperiment>();
+
+        if (IsValid(Experiment))
+        {
+            Experiment->SetActorLocation(Center);
+            Experiment->RoadNetwork = Network;
+            Experiment->Junction = Junction;
+
+            SpawnedActors.Add(Experiment);
         }
     }
 }

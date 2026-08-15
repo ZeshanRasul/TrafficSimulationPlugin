@@ -540,6 +540,34 @@ void ATrafficJunction::RebuildJunction()
     BuildConflictMatrix();
     RebuildSignalIndicators();
 
+    // The conflict count is the junction's capacity ceiling: conflicting
+    // movements are serialised, so a near-complete conflict graph means only
+    // one vehicle crosses at a time no matter what the signals allow.
+    int32 ConflictPairCount = 0;
+
+    for (const FTrafficConnectorLane& Connector : Connectors)
+    {
+        ConflictPairCount += Connector.ConflictingConnectors.Num();
+    }
+
+    ConflictPairCount /= 2;
+
+    const int32 PossiblePairs =
+        Connectors.Num() * FMath::Max(Connectors.Num() - 1, 0) / 2;
+
+    UE_LOG(
+        LogTemp,
+        Display,
+        TEXT(
+            "%s rebuilt: %d connectors, %d of %d pairs conflict (%.0f%%)."),
+        *GetName(),
+        Connectors.Num(),
+        ConflictPairCount,
+        PossiblePairs,
+        PossiblePairs > 0
+            ? 100.0f * ConflictPairCount / PossiblePairs
+            : 0.0f);
+
     if (IsValid(RoadNetwork))
     {
         RoadNetwork->RebuildNetwork();
@@ -790,6 +818,8 @@ bool ATrafficJunction::RequestEntry(AActor* Vehicle, int32 ConnectorIndex)
     }
 
     Existing->bGranted = true;
+    ++TotalGrantsIssued;
+
     return true;
 }
 
