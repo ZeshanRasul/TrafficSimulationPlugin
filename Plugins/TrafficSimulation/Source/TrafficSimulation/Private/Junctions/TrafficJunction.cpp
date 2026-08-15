@@ -547,7 +547,7 @@ void ATrafficJunction::RebuildJunction()
 
     for (const FTrafficConnectorLane& Connector : Connectors)
     {
-        ConflictPairCount += Connector.ConflictingConnectors.Num();
+        ConflictPairCount += Connector.Conflicts.Num();
     }
 
     ConflictPairCount /= 2;
@@ -574,10 +574,15 @@ void ATrafficJunction::RebuildJunction()
     }
 }
 
-bool ATrafficJunction::ConnectorsCross(
+bool ATrafficJunction::ComputeConnectorConflict(
     const FTrafficConnectorLane& First,
-    const FTrafficConnectorLane& Second) const
+    const FTrafficConnectorLane& Second,
+    float& OutFirstClearCm,
+    float& OutSecondClearCm) const
 {
+    OutFirstClearCm = 0.0f;
+    OutSecondClearCm = 0.0f;
+
     const TArray<FTrafficLaneSample>& FirstSamples = First.Lane.Samples;
     const TArray<FTrafficLaneSample>& SecondSamples = Second.Lane.Samples;
 
@@ -589,6 +594,8 @@ bool ATrafficJunction::ConnectorsCross(
     const float ClearanceSquaredCm =
         FMath::Square(ConflictClearanceCm);
 
+    bool bConflicts = false;
+
     for (int32 FirstIndex = 0;
         FirstIndex + 1 < FirstSamples.Num();
         ++FirstIndex)
@@ -597,33 +604,44 @@ bool ATrafficJunction::ConnectorsCross(
             SecondIndex + 1 < SecondSamples.Num();
             ++SecondIndex)
         {
-            if (SegmentsIntersect2D(
-                FirstSamples[FirstIndex].Location,
-                FirstSamples[FirstIndex + 1].Location,
-                SecondSamples[SecondIndex].Location,
-                SecondSamples[SecondIndex + 1].Location))
+            const bool bSegmentsMeet =
+                SegmentsIntersect2D(
+                    FirstSamples[FirstIndex].Location,
+                    FirstSamples[FirstIndex + 1].Location,
+                    SecondSamples[SecondIndex].Location,
+                    SecondSamples[SecondIndex + 1].Location) ||
+                FVector::DistSquared(
+                    FirstSamples[FirstIndex].Location,
+                    SecondSamples[SecondIndex].Location) <=
+                    ClearanceSquaredCm;
+
+            if (!bSegmentsMeet)
             {
-                return true;
+                continue;
             }
 
-            if (FVector::DistSquared(
-                FirstSamples[FirstIndex].Location,
-                SecondSamples[SecondIndex].Location) <=
-                ClearanceSquaredCm)
-            {
-                return true;
-            }
+            bConflicts = true;
+
+            // Track the furthest point along each path at which the two still
+            // interfere. Past that, the movements are independent again.
+            OutFirstClearCm = FMath::Max(
+                OutFirstClearCm,
+                FirstSamples[FirstIndex + 1].DistanceAlongLaneCm);
+
+            OutSecondClearCm = FMath::Max(
+                OutSecondClearCm,
+                SecondSamples[SecondIndex + 1].DistanceAlongLaneCm);
         }
     }
 
-    return false;
+    return bConflicts;
 }
 
 void ATrafficJunction::BuildConflictMatrix()
 {
     for (FTrafficConnectorLane& Connector : Connectors)
     {
-        Connector.ConflictingConnectors.Reset();
+        Connector.Conflicts.Reset();
     }
 
     for (int32 First = 0; First < Connectors.Num(); ++First)
@@ -646,12 +664,39 @@ void ATrafficJunction::BuildConflictMatrix()
                 Connectors[First].TargetEntry.Lane ==
                 Connectors[Second].TargetEntry.Lane;
 
-            if (bMerges ||
-                ConnectorsCross(Connectors[First], Connectors[Second]))
+            float FirstClearCm = 0.0f;
+            float SecondClearCm = 0.0f;
+
+            const bool bGeometryConflicts = ComputeConnectorConflict(
+                Connectors[First],
+                Connectors[Second],
+                FirstClearCm,
+                SecondClearCm);
+
+            if (!bMerges && !bGeometryConflicts)
             {
-                Connectors[First].ConflictingConnectors.Add(Second);
-                Connectors[Second].ConflictingConnectors.Add(First);
+                continue;
             }
+
+            // Vehicles merging into one lane stay in contention right to the
+            // end of the crossing, so neither releases the other early.
+            if (bMerges)
+            {
+                FirstClearCm = Connectors[First].Lane.LengthCm;
+                SecondClearCm = Connectors[Second].Lane.LengthCm;
+            }
+
+            FTrafficConnectorConflict& FirstEntry =
+                Connectors[First].Conflicts.AddDefaulted_GetRef();
+
+            FirstEntry.OtherConnectorIndex = Second;
+            FirstEntry.ClearDistanceCm = FirstClearCm;
+
+            FTrafficConnectorConflict& SecondEntry =
+                Connectors[Second].Conflicts.AddDefaulted_GetRef();
+
+            SecondEntry.OtherConnectorIndex = First;
+            SecondEntry.ClearDistanceCm = SecondClearCm;
         }
     }
 }
@@ -732,6 +777,14 @@ bool ATrafficJunction::RequestEntry(AActor* Vehicle, int32 ConnectorIndex)
         return false;
     }
 
+    // Entering with nowhere to go would strand this vehicle mid-crossing,
+    // where it would hold every conflicting movement until the queue ahead
+    // moved. Better to wait at the stop line with the box left clear.
+    if (!HasExitSpace(ConnectorIndex, Vehicle))
+    {
+        return false;
+    }
+
     // Connectors sharing a source lane are not conflicts, because a driver
     // takes one or the other. Two different vehicles from that lane, however,
     // still occupy the same tarmac until their paths separate, and car
@@ -781,9 +834,6 @@ bool ATrafficJunction::RequestEntry(AActor* Vehicle, int32 ConnectorIndex)
         }
     }
 
-    const TArray<int32>& Conflicts =
-        Connectors[ConnectorIndex].ConflictingConnectors;
-
     const uint64 OwnTicket = Existing->Ticket;
 
     for (const FTrafficJunctionReservation& Other : Reservations)
@@ -793,20 +843,45 @@ bool ATrafficJunction::RequestEntry(AActor* Vehicle, int32 ConnectorIndex)
             continue;
         }
 
-        if (!Conflicts.Contains(Other.ConnectorIndex))
+        if (!Connectors[ConnectorIndex].ConflictsWith(Other.ConnectorIndex))
         {
             continue;
         }
 
-        // Anything already inside the box must be allowed to clear it.
         if (Other.bGranted)
         {
+            // A vehicle already inside the box only blocks this movement
+            // until it is past the point where the two paths meet. Holding
+            // the whole crossing instead would serialise the junction far
+            // more than its geometry requires.
+            if (Connectors.IsValidIndex(Other.ConnectorIndex))
+            {
+                float ClearDistanceCm = 0.0f;
+
+                const ATrafficLaneFollower* OtherVehicle =
+                    Cast<ATrafficLaneFollower>(Other.Vehicle.Get());
+
+                if (OtherVehicle &&
+                    Connectors[Other.ConnectorIndex].TryGetClearDistanceCm(
+                        ConnectorIndex,
+                        ClearDistanceCm) &&
+                    OtherVehicle->GetCurrentLaneHandle() ==
+                        Connectors[Other.ConnectorIndex].Lane.Handle &&
+                    OtherVehicle->GetDistanceAlongLaneCm() >
+                        ClearDistanceCm + ConflictReleaseMarginCm)
+                {
+                    continue;
+                }
+            }
+
             return false;
         }
 
-        // A vehicle held at a red light must not block cross traffic that has
-        // a green, even though it arrived first.
-        if (!IsConnectorSignalGreen(Other.ConnectorIndex))
+        // A vehicle that cannot move anyway - held at a red, or with its own
+        // exit blocked - must not keep cross traffic waiting behind it just
+        // because it arrived first.
+        if (!IsConnectorSignalGreen(Other.ConnectorIndex) ||
+            !HasExitSpace(Other.ConnectorIndex, Other.Vehicle.Get()))
         {
             continue;
         }
@@ -831,6 +906,51 @@ void ATrafficJunction::ReleaseEntry(AActor* Vehicle)
             return !Entry.Vehicle.IsValid() ||
                 Entry.Vehicle.Get() == Vehicle;
         });
+}
+
+bool ATrafficJunction::HasExitSpace(
+    int32 ConnectorIndex,
+    AActor* Vehicle) const
+{
+    if (!bRequireExitSpace)
+    {
+        return true;
+    }
+
+    if (!IsValid(RoadNetwork) || !Connectors.IsValidIndex(ConnectorIndex))
+    {
+        return true;
+    }
+
+    const FTrafficLaneHandle& ExitLane =
+        Connectors[ConnectorIndex].TargetEntry.Lane;
+
+    TScriptInterface<ITrafficLaneProvider> Provider =
+        RoadNetwork->FindLaneProvider(ExitLane.RoadId);
+
+    float ExitLaneLengthCm = 0.0f;
+
+    if (!Provider.GetInterface() ||
+        !Provider->GetLaneLength(ExitLane, ExitLaneLengthCm))
+    {
+        return true;
+    }
+
+    // Measured from the start of the departure lane, which is where the
+    // vehicle will arrive.
+    float GapCm = 0.0f;
+    ATrafficLaneFollower* Blocker = nullptr;
+
+    const bool bFoundVehicleAhead = RoadNetwork->FindForwardGapCm(
+        Cast<ATrafficLaneFollower>(Vehicle),
+        ExitLane,
+        0.0f,
+        ExitLaneLengthCm,
+        nullptr,
+        GapCm,
+        Blocker);
+
+    return !bFoundVehicleAhead || GapCm >= RequiredExitSpaceCm;
 }
 
 void ATrafficJunction::AdvanceSignals(float DeltaSeconds)
@@ -1186,8 +1306,11 @@ void ATrafficJunction::DrawDebugJunction() const
         const FVector FirstMidpoint =
             FirstSamples[FirstSamples.Num() / 2].Location + HeightOffset;
 
-        for (const int32 Second : Connectors[First].ConflictingConnectors)
+        for (const FTrafficConnectorConflict& Conflict :
+            Connectors[First].Conflicts)
         {
+            const int32 Second = Conflict.OtherConnectorIndex;
+
             if (Second <= First || !Connectors.IsValidIndex(Second))
             {
                 continue;

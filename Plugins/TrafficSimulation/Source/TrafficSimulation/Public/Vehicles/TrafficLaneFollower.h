@@ -150,12 +150,14 @@ private:
         meta = (Units = "cm/s"))
     float SpeedCmPerSecond = 500.0f;
 
-    // Centimetres per second squared.
+    // Centimetres per second squared. Queue discharge is limited by how
+    // briskly a stopped vehicle can pull away, so this also sets how quickly
+    // a junction clears.
     UPROPERTY(
         EditAnywhere,
         Category = "Traffic Vehicle|Movement",
         meta = (ClampMin = "1.0", UIMin = "1.0"))
-    float AccelerationCmPerSecondSquared = 250.0f;
+    float AccelerationCmPerSecondSquared = 450.0f;
 
     // Centimetres per second squared.
     UPROPERTY(

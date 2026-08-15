@@ -331,7 +331,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
             continue;
         }
 
-        if (FirstConnector.ConflictingConnectors.Contains(First))
+        if (FirstConnector.ConflictsWith(First))
         {
             bNoSelfConflict = false;
         }
@@ -351,10 +351,10 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
             }
 
             const bool bFirstListsSecond =
-                FirstConnector.ConflictingConnectors.Contains(Second);
+                FirstConnector.ConflictsWith(Second);
 
             const bool bSecondListsFirst =
-                SecondConnector.ConflictingConnectors.Contains(First);
+                SecondConnector.ConflictsWith(First);
 
             if (bFirstListsSecond != bSecondListsFirst)
             {
@@ -439,10 +439,13 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
         FTrafficConnectorLane Connector;
 
         if (Junction->GetConnector(Index, Connector) &&
-            Connector.ConflictingConnectors.Num() > 0)
+            Connector.Conflicts.Num() > 0)
         {
             FirstConnectorIndex = Index;
-            SecondConnectorIndex = Connector.ConflictingConnectors[0];
+
+            SecondConnectorIndex =
+                Connector.Conflicts[0].OtherConnectorIndex;
+
             break;
         }
     }
@@ -504,14 +507,14 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
     Vehicles.Add(World->SpawnActor<AActor>());
     ConnectorIndices.Add(FirstConnectorIndex);
 
-    for (const int32 ConflictIndex : SeedConnector.ConflictingConnectors)
+    for (const FTrafficConnectorConflict& Conflict : SeedConnector.Conflicts)
     {
         AActor* Vehicle = World->SpawnActor<AActor>();
 
         if (Vehicle)
         {
             Vehicles.Add(Vehicle);
-            ConnectorIndices.Add(ConflictIndex);
+            ConnectorIndices.Add(Conflict.OtherConnectorIndex);
         }
     }
 

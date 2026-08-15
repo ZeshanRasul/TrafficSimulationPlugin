@@ -14,6 +14,30 @@ class UStaticMesh;
 class UStaticMeshComponent;
 class UMaterialInterface;
 
+// A conflict between two connectors, together with how far along this one a
+// vehicle must travel before it stops interfering with the other. Blocking a
+// conflicting movement for the whole crossing serialises the junction far more
+// than the geometry requires; in practice a turning vehicle only obstructs
+// oncoming traffic until it is past the point where the paths meet.
+USTRUCT(BlueprintType)
+struct TRAFFICSIMULATION_API FTrafficConnectorConflict
+{
+    GENERATED_BODY()
+
+    UPROPERTY(
+        VisibleAnywhere,
+        BlueprintReadOnly,
+        Category = "Traffic Connector")
+    int32 OtherConnectorIndex = INDEX_NONE;
+
+    // Measured along the connector that owns this entry.
+    UPROPERTY(
+        VisibleAnywhere,
+        BlueprintReadOnly,
+        Category = "Traffic Connector")
+    float ClearDistanceCm = 0.0f;
+};
+
 // One drivable path through the junction box, from an approach lane's exit to
 // a departure lane's entry. Connectors are lanes in their own right: they carry
 // a handle whose RoadId is the junction's id, so vehicles traverse them with
@@ -59,7 +83,32 @@ struct TRAFFICSIMULATION_API FTrafficConnectorLane
         VisibleAnywhere,
         BlueprintReadOnly,
         Category = "Traffic Connector")
-    TArray<int32> ConflictingConnectors;
+    TArray<FTrafficConnectorConflict> Conflicts;
+
+    bool ConflictsWith(int32 OtherConnectorIndex) const
+    {
+        return Conflicts.ContainsByPredicate(
+            [OtherConnectorIndex](const FTrafficConnectorConflict& Entry)
+            {
+                return Entry.OtherConnectorIndex == OtherConnectorIndex;
+            });
+    }
+
+    bool TryGetClearDistanceCm(
+        int32 OtherConnectorIndex,
+        float& OutClearDistanceCm) const
+    {
+        for (const FTrafficConnectorConflict& Entry : Conflicts)
+        {
+            if (Entry.OtherConnectorIndex == OtherConnectorIndex)
+            {
+                OutClearDistanceCm = Entry.ClearDistanceCm;
+                return true;
+            }
+        }
+
+        return false;
+    }
 };
 
 // A set of approaches that are permitted to move simultaneously.
@@ -244,9 +293,18 @@ private:
 
     void BuildConflictMatrix();
 
-    bool ConnectorsCross(
+    // Returns true when the two paths interfere, and how far along each one a
+    // vehicle must get before it is clear of the other.
+    bool ComputeConnectorConflict(
         const FTrafficConnectorLane& First,
-        const FTrafficConnectorLane& Second) const;
+        const FTrafficConnectorLane& Second,
+        float& OutFirstClearCm,
+        float& OutSecondClearCm) const;
+
+    // Whether the connector's departure lane can currently receive a vehicle.
+    // Also used to decide that a waiting vehicle which could not move anyway
+    // must not hold up others behind it in the queue.
+    bool HasExitSpace(int32 ConnectorIndex, AActor* Vehicle) const;
 
     void AdvanceSignals(float DeltaSeconds);
 
@@ -306,7 +364,32 @@ private:
         EditAnywhere,
         Category = "Traffic Junction|Arbitration",
         meta = (ClampMin = "0.0", UIMin = "0.0", Units = "cm"))
-    float EntryHeadwayCm = 700.0f;
+    float EntryHeadwayCm = 550.0f;
+
+    // Extra distance a vehicle must travel past a conflict point before the
+    // blocked movement is released, covering its own length plus a margin.
+    UPROPERTY(
+        EditAnywhere,
+        Category = "Traffic Junction|Arbitration",
+        meta = (ClampMin = "0.0", UIMin = "0.0", Units = "cm"))
+    float ConflictReleaseMarginCm = 350.0f;
+
+    // Refuse entry unless the departure lane has room to receive the vehicle.
+    // Without this a queue that has backed up to the junction lets vehicles
+    // in that then cannot leave, so they stall mid-crossing and hold their
+    // conflicts indefinitely - the junction gridlocks and never recovers.
+    UPROPERTY(EditAnywhere, Category = "Traffic Junction|Arbitration")
+    bool bRequireExitSpace = true;
+
+    UPROPERTY(
+        EditAnywhere,
+        Category = "Traffic Junction|Arbitration",
+        meta = (
+            EditCondition = "bRequireExitSpace",
+            ClampMin = "0.0",
+            UIMin = "0.0",
+            Units = "cm"))
+    float RequiredExitSpaceCm = 700.0f;
 
     // Bezier handle length as a fraction of the straight-line chord. 0.55
     // approximates a circular arc; lower values tighten the turn.
