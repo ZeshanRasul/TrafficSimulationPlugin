@@ -143,6 +143,12 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Traffic Network|Connections")
     void ClearConnections();
 
+    // Connects one specific pair of roads by endpoint proximity. Grid layouts
+    // are not a simple chain, so BuildSimpleConnections' adjacent-pair pass
+    // cannot express them; this lets a builder state each join explicitly.
+    UFUNCTION(BlueprintCallable, Category = "Traffic Network|Connections")
+    void ConnectRoads(ATrafficRoad* FirstRoad, ATrafficRoad* SecondRoad);
+
     // Vehicles register on BeginPlay/unregister on EndPlay so the network can
     // answer forward-gap queries without every vehicle doing its own O(N)
     // world scan independently.
@@ -172,6 +178,24 @@ public:
     // call per frame; also the measurement surface for scale benchmarking.
     UFUNCTION(BlueprintPure, Category = "Traffic Network|Debug")
     FTrafficNetworkStats GetNetworkStats() const;
+
+    // Vehicles and junctions add their own tick cost here. Frame time cannot
+    // answer how expensive the simulation is whenever a frame rate cap or
+    // vsync is active, because the engine simply idles to hit the deadline;
+    // this measures the work itself, independent of what the renderer does.
+    void AddSimulationTimeSeconds(double Seconds)
+    {
+        AccumulatedSimulationSeconds += Seconds;
+    }
+
+    // Returns the time accumulated since the last call, and resets it.
+    double ConsumeSimulationTimeSeconds()
+    {
+        const double Consumed = AccumulatedSimulationSeconds;
+        AccumulatedSimulationSeconds = 0.0;
+
+        return Consumed;
+    }
 
 private:
     void DrawDebugConnections() const;
@@ -214,4 +238,6 @@ private:
 
     UPROPERTY(Transient)
     TArray<TWeakObjectPtr<ATrafficLaneFollower>> RegisteredVehicles;
+
+    double AccumulatedSimulationSeconds = 0.0;
 };

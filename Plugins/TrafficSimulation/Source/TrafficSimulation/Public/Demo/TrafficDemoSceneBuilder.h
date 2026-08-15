@@ -34,6 +34,15 @@ public:
     UFUNCTION(BlueprintCallable, CallInEditor, Category = "Traffic Demo")
     void ClearDemoScene();
 
+    // Lets the benchmark runner sweep population sizes between rebuilds.
+    UFUNCTION(BlueprintCallable, Category = "Traffic Demo")
+    void SetTotalVehicleCount(int32 NewCount);
+
+    // The network the last build used. Rebuilding may replace it, so this
+    // must be re-read after every BuildDemoScene call.
+    UFUNCTION(BlueprintPure, Category = "Traffic Demo")
+    ATrafficRoadNetwork* GetBuiltNetwork() const;
+
 private:
     ATrafficRoad* SpawnRoad(
         const TArray<FVector>& WorldPoints,
@@ -46,6 +55,9 @@ private:
 
     ATrafficRoadNetwork* ResolveNetwork();
 
+    // How many vehicles a road can take without breaching MinVehicleSpacingCm.
+    int32 GetRoadVehicleCapacity(ATrafficRoad* Road) const;
+
     UPROPERTY(VisibleAnywhere, Category = "Traffic Demo")
     TObjectPtr<USceneComponent> SceneRoot;
 
@@ -54,11 +66,43 @@ private:
     UPROPERTY(EditInstanceOnly, Category = "Traffic Demo|Network")
     TObjectPtr<ATrafficRoadNetwork> RoadNetwork;
 
+    // Junctions are laid out on a grid. 1x1 is a single crossroads with a
+    // ring road around it; larger grids add interior roads between adjacent
+    // junctions and are what the scene needs to hold hundreds of vehicles.
+    UPROPERTY(
+        EditAnywhere,
+        Category = "Traffic Demo|Layout",
+        meta = (ClampMin = "1", UIMin = "1", ClampMax = "8"))
+    int32 GridColumns = 1;
+
+    UPROPERTY(
+        EditAnywhere,
+        Category = "Traffic Demo|Layout",
+        meta = (ClampMin = "1", UIMin = "1", ClampMax = "8"))
+    int32 GridRows = 1;
+
+    // Centre-to-centre distance between adjacent junctions.
+    UPROPERTY(
+        EditAnywhere,
+        Category = "Traffic Demo|Layout",
+        meta = (ClampMin = "2000.0", UIMin = "2000.0", Units = "cm"))
+    float JunctionSpacingCm = 9000.0f;
+
+    // Length of the stub roads that run outward from the edge junctions to
+    // meet the perimeter ring.
     UPROPERTY(
         EditAnywhere,
         Category = "Traffic Demo|Layout",
         meta = (ClampMin = "500.0", UIMin = "500.0", Units = "cm"))
     float SpurLengthCm = 4000.0f;
+
+    // How far each perimeter link bows outward, as a fraction of the gap
+    // between the two stub ends it joins. Rounds off the ring's corners.
+    UPROPERTY(
+        EditAnywhere,
+        Category = "Traffic Demo|Layout",
+        meta = (ClampMin = "0.0", UIMin = "0.0", ClampMax = "1.0"))
+    float PerimeterBulgeFraction = 0.3f;
 
     // Distance from the junction centre to each ring corner's control point.
     // Larger values bow the ring further out from the crossroads.
@@ -148,6 +192,15 @@ private:
     UPROPERTY(EditAnywhere, Category = "Traffic Demo|Vehicles")
     TSubclassOf<ATrafficLaneFollower> VehicleClass;
 
+    // When above zero, this many vehicles are distributed across the whole
+    // network in proportion to lane length, and the per-road counts below are
+    // ignored. This is the knob to sweep when benchmarking.
+    UPROPERTY(
+        EditAnywhere,
+        Category = "Traffic Demo|Vehicles",
+        meta = (ClampMin = "0", UIMin = "0"))
+    int32 TotalVehicleCount = 0;
+
     UPROPERTY(
         EditAnywhere,
         Category = "Traffic Demo|Vehicles",
@@ -159,6 +212,14 @@ private:
         Category = "Traffic Demo|Vehicles",
         meta = (ClampMin = "0", UIMin = "0"))
     int32 VehiclesPerRingSegment = 1;
+
+    // Lower bound on spacing when distributing TotalVehicleCount, so a lane
+    // is never asked to hold more vehicles than physically fit.
+    UPROPERTY(
+        EditAnywhere,
+        Category = "Traffic Demo|Vehicles",
+        meta = (ClampMin = "100.0", UIMin = "100.0", Units = "cm"))
+    float MinVehicleSpacingCm = 700.0f;
 
     UPROPERTY(
         EditAnywhere,

@@ -162,8 +162,19 @@ void ATrafficJunction::Tick(float DeltaSeconds)
 {
     Super::Tick(DeltaSeconds);
 
+    const double TickStartSeconds = FPlatformTime::Seconds();
+
     AdvanceSignals(DeltaSeconds);
     UpdateSignalIndicatorColours();
+
+    if (IsValid(RoadNetwork))
+    {
+        RoadNetwork->AddSimulationTimeSeconds(
+            FPlatformTime::Seconds() - TickStartSeconds);
+    }
+
+    // Deliberately outside the timed section: debug drawing is presentation,
+    // not simulation, and counting it would inflate the reported cost.
     DrawDebugJunction();
 }
 

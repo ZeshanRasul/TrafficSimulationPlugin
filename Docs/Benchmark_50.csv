@@ -1,0 +1,2 @@
+RequestedVehicles,ActualVehicles,MeanSimulationMs,P95SimulationMs,MicrosecondsPerVehicle,MeanFrameTimeMs,P95FrameTimeMs,MaxFrameTimeMs,MeanFps,MeanFlowFraction,MeanStoppedVehicles
+50,50,0.1789,0.1748,3.58,8.355,8.435,23.215,119.7,0.5995,12.4

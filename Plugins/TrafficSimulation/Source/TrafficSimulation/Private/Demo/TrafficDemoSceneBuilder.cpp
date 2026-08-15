@@ -105,6 +105,47 @@ ATrafficRoad* ATrafficDemoSceneBuilder::SpawnRoad(
     return Road;
 }
 
+void ATrafficDemoSceneBuilder::SetTotalVehicleCount(int32 NewCount)
+{
+    TotalVehicleCount = FMath::Max(NewCount, 0);
+}
+
+ATrafficRoadNetwork* ATrafficDemoSceneBuilder::GetBuiltNetwork() const
+{
+    return IsValid(RoadNetwork) ? RoadNetwork : SpawnedNetwork;
+}
+
+int32 ATrafficDemoSceneBuilder::GetRoadVehicleCapacity(
+    ATrafficRoad* Road) const
+{
+    if (!IsValid(Road))
+    {
+        return 0;
+    }
+
+    const int32 LaneCountOnRoad = Road->GetLaneCount();
+
+    if (LaneCountOnRoad <= 0)
+    {
+        return 0;
+    }
+
+    const FTrafficLaneHandle LaneHandle = Road->GetLaneHandle(0);
+
+    float LaneLengthCm = 0.0f;
+
+    if (!LaneHandle.IsValid() ||
+        !Road->GetLaneLength(LaneHandle, LaneLengthCm))
+    {
+        return 0;
+    }
+
+    const int32 PerLane = FMath::FloorToInt(
+        LaneLengthCm / FMath::Max(MinVehicleSpacingCm, 1.0f));
+
+    return FMath::Max(PerLane, 0) * LaneCountOnRoad;
+}
+
 ATrafficRoadNetwork* ATrafficDemoSceneBuilder::ResolveNetwork()
 {
     if (IsValid(RoadNetwork))
@@ -260,13 +301,13 @@ void ATrafficDemoSceneBuilder::BuildDemoScene()
     }
 
     Network->MaximumConnectionDistanceCm = ConnectionToleranceCm;
-    Network->SetConnectLastRoadToFirst(true);
+    Network->SetConnectLastRoadToFirst(false);
 
-    const FVector Center = GetActorLocation();
+    const FVector Origin = GetActorLocation();
 
-    // Index order doubles as compass order (N, E, S, W) and as the approach
-    // index the junction later assigns each spur, which the signal phases
-    // below key off of.
+    // Index order doubles as compass order and as the approach index each
+    // junction assigns, which the signal phases key off: 0 and 2 are the
+    // opposing pair on one axis, 1 and 3 on the other.
     const FVector Directions[4] =
     {
         FVector(1.0f, 0.0f, 0.0f),
@@ -275,135 +316,361 @@ void ATrafficDemoSceneBuilder::BuildDemoScene()
         FVector(0.0f, -1.0f, 0.0f)
     };
 
-    FVector RingPoints[4];
+    const int32 Columns = FMath::Max(GridColumns, 1);
+    const int32 Rows = FMath::Max(GridRows, 1);
 
-    for (int32 Index = 0; Index < 4; ++Index)
-    {
-        RingPoints[Index] = Center + Directions[Index] * SpurLengthCm;
-    }
-
-    TArray<ATrafficRoad*> Spurs;
-    Spurs.SetNum(4);
-
-    // Held back from the centre so the junction is a box with real area
-    // rather than a single point every approach converges on.
+    // Held back from each junction centre so the junction is a box with real
+    // area rather than a single point every approach converges on.
     const float SafeInsetCm = FMath::Clamp(
         JunctionApproachInsetCm,
         0.0f,
         FMath::Max(JunctionRadiusCm - 100.0f, 0.0f));
 
-    for (int32 Index = 0; Index < 4; ++Index)
-    {
-        const FVector SpurInnerPoint =
-            Center + Directions[Index] * SafeInsetCm;
-
-        Spurs[Index] = SpawnRoad(
-            { SpurInnerPoint, RingPoints[Index] },
-            false);
-    }
-
-    TArray<ATrafficRoad*> Links;
-    Links.SetNum(4);
-
-    for (int32 Index = 0; Index < 4; ++Index)
-    {
-        const int32 NextIndex = (Index + 1) % 4;
-
-        const FVector CornerDirection =
-            (Directions[Index] + Directions[NextIndex]).GetSafeNormal();
-
-        const FVector CornerPoint =
-            Center + CornerDirection * RingCornerRadiusCm;
-
-        Links[Index] = SpawnRoad(
-            { RingPoints[Index], CornerPoint, RingPoints[NextIndex] },
-            false);
-    }
-
-    // Roads are added in ring order (spur, link, spur, link, ...) so that
-    // BuildSimpleConnections' adjacent-pair matching wires the whole loop:
-    // every consecutive pair genuinely meets at a shared ring point, and
-    // ConnectLastRoadToFirst closes the final link back to the first spur.
-    for (int32 Index = 0; Index < 4; ++Index)
-    {
-        if (Spurs[Index])
+    auto GetJunctionLocation =
+        [&](int32 Column, int32 Row) -> FVector
         {
-            Network->AddRoad(Spurs[Index]);
-        }
+            return Origin +
+                FVector(
+                    (Column - (Columns - 1) * 0.5f) * JunctionSpacingCm,
+                    (Row - (Rows - 1) * 0.5f) * JunctionSpacingCm,
+                    0.0f);
+        };
 
-        if (Links[Index])
+    auto JunctionIndex =
+        [&](int32 Column, int32 Row)
         {
-            Network->AddRoad(Links[Index]);
-        }
-    }
+            return Row * Columns + Column;
+        };
 
-    Network->BuildSimpleConnections();
+    // Slotted by direction rather than by creation order. Approach index has
+    // to mean the same compass direction at every junction, or a signal phase
+    // of {0, 2} stops selecting an opposing pair: interior roads are created
+    // by whichever junction reaches them first, so appending as we go leaves
+    // neighbouring junctions with differently ordered approaches.
+    TArray<ATrafficRoad*> ApproachByJunctionAndDirection;
+    ApproachByJunctionAndDirection.SetNumZeroed(Columns * Rows * 4);
 
-    ATrafficJunction* Junction = World->SpawnActor<ATrafficJunction>();
+    auto SetApproach =
+        [&](int32 Column, int32 Row, int32 DirectionIndex, ATrafficRoad* Road)
+        {
+            ApproachByJunctionAndDirection[
+                JunctionIndex(Column, Row) * 4 + DirectionIndex] = Road;
+        };
 
-    if (IsValid(Junction))
+    // Outer ends of the stub roads, which the perimeter ring will join up.
+    TArray<TPair<FVector, ATrafficRoad*>> StubEnds;
+
+    for (int32 Row = 0; Row < Rows; ++Row)
     {
-        Junction->SetActorLocation(Center);
-        Junction->RoadNetwork = Network;
-        Junction->SetJunctionRadiusCm(JunctionRadiusCm);
-
-        for (ATrafficRoad* Spur : Spurs)
+        for (int32 Column = 0; Column < Columns; ++Column)
         {
-            if (Spur)
+            const FVector JunctionLocation =
+                GetJunctionLocation(Column, Row);
+
+            for (int32 DirectionIndex = 0;
+                DirectionIndex < 4;
+                ++DirectionIndex)
             {
-                Junction->ApproachRoads.Add(Spur);
+                const FVector& Direction = Directions[DirectionIndex];
+
+                const int32 NeighbourColumn =
+                    Column + FMath::RoundToInt(Direction.X);
+
+                const int32 NeighbourRow =
+                    Row + FMath::RoundToInt(Direction.Y);
+
+                const bool bNeighbourExists =
+                    NeighbourColumn >= 0 && NeighbourColumn < Columns &&
+                    NeighbourRow >= 0 && NeighbourRow < Rows;
+
+                const FVector InnerPoint =
+                    JunctionLocation + Direction * SafeInsetCm;
+
+                if (bNeighbourExists)
+                {
+                    // Interior roads are shared, so only the +X and +Y passes
+                    // create one; the neighbour picks up the same road from
+                    // its own opposite direction.
+                    if (Direction.X < 0.0f || Direction.Y < 0.0f)
+                    {
+                        continue;
+                    }
+
+                    const FVector NeighbourInnerPoint =
+                        GetJunctionLocation(NeighbourColumn, NeighbourRow) -
+                        Direction * SafeInsetCm;
+
+                    ATrafficRoad* InteriorRoad = SpawnRoad(
+                        { InnerPoint, NeighbourInnerPoint },
+                        false);
+
+                    if (InteriorRoad)
+                    {
+                        SetApproach(
+                            Column,
+                            Row,
+                            DirectionIndex,
+                            InteriorRoad);
+
+                        // The same road arrives at the neighbour from the
+                        // opposite compass direction.
+                        SetApproach(
+                            NeighbourColumn,
+                            NeighbourRow,
+                            (DirectionIndex + 2) % 4,
+                            InteriorRoad);
+                    }
+
+                    continue;
+                }
+
+                const FVector OuterPoint =
+                    JunctionLocation + Direction * SpurLengthCm;
+
+                ATrafficRoad* Stub = SpawnRoad(
+                    { InnerPoint, OuterPoint },
+                    false);
+
+                if (Stub)
+                {
+                    SetApproach(Column, Row, DirectionIndex, Stub);
+
+                    StubEnds.Emplace(OuterPoint, Stub);
+                }
             }
         }
+    }
 
-        if (bUseTrafficSignals)
+    // Interior roads appear against both their junctions; AddRoad ignores
+    // repeats.
+    for (ATrafficRoad* Road : ApproachByJunctionAndDirection)
+    {
+        Network->AddRoad(Road);
+    }
+
+    // Walking the stub ends by bearing around the grid centre gives their
+    // order around the perimeter, for any grid size.
+    StubEnds.Sort(
+        [Origin](
+            const TPair<FVector, ATrafficRoad*>& Left,
+            const TPair<FVector, ATrafficRoad*>& Right)
         {
-            TArray<FTrafficSignalPhase> Phases;
+            return FMath::Atan2(
+                Left.Key.Y - Origin.Y,
+                Left.Key.X - Origin.X) <
+                FMath::Atan2(
+                    Right.Key.Y - Origin.Y,
+                    Right.Key.X - Origin.X);
+        });
 
-            FTrafficSignalPhase NorthSouth;
-            NorthSouth.GreenApproachIndices = { 0, 2 };
-            NorthSouth.GreenDurationSeconds = 8.0f;
-            NorthSouth.ClearanceDurationSeconds = 2.0f;
-            Phases.Add(NorthSouth);
+    for (int32 Index = 0; Index < StubEnds.Num(); ++Index)
+    {
+        const int32 NextIndex = (Index + 1) % StubEnds.Num();
 
-            FTrafficSignalPhase EastWest;
-            EastWest.GreenApproachIndices = { 1, 3 };
-            EastWest.GreenDurationSeconds = 8.0f;
-            EastWest.ClearanceDurationSeconds = 2.0f;
-            Phases.Add(EastWest);
-
-            Junction->ConfigureSignals(true, Phases);
+        if (NextIndex == Index)
+        {
+            break;
         }
 
-        SpawnedActors.Add(Junction);
+        const FVector& Start = StubEnds[Index].Key;
+        const FVector& End = StubEnds[NextIndex].Key;
 
-        // Registers the junction with the network, then builds its
-        // connectors; RebuildJunction's own successful rebuild is what makes
-        // the network pick up the junction's approach/departure links.
-        Network->AddJunction(Junction);
-        Junction->RebuildJunction();
+        // Bowed outward from the grid centre so the ring rounds off rather
+        // than cutting straight across its own corners.
+        const FVector Midpoint = (Start + End) * 0.5f;
 
-        if (bUseTrafficSignals)
+        const FVector OutwardDirection =
+            (Midpoint - Origin).GetSafeNormal2D();
+
+        const FVector ControlPoint =
+            Midpoint +
+            OutwardDirection *
+            FVector::Dist(Start, End) * PerimeterBulgeFraction;
+
+        ATrafficRoad* PerimeterLink = SpawnRoad(
+            { Start, ControlPoint, End },
+            false);
+
+        if (!PerimeterLink)
         {
-            // Applied after RebuildJunction so the indicator placement pass
-            // it triggers has real connectors to place lights against.
-            Junction->SetSignalVisuals(
-                SignalMesh,
-                RedSignalMaterial,
-                YellowSignalMaterial,
-                GreenSignalMaterial);
+            continue;
+        }
+
+        Network->AddRoad(PerimeterLink);
+
+        Network->ConnectRoads(StubEnds[Index].Value, PerimeterLink);
+        Network->ConnectRoads(PerimeterLink, StubEnds[NextIndex].Value);
+    }
+
+    TArray<ATrafficJunction*> Junctions;
+
+    for (int32 Row = 0; Row < Rows; ++Row)
+    {
+        for (int32 Column = 0; Column < Columns; ++Column)
+        {
+            ATrafficJunction* Junction =
+                World->SpawnActor<ATrafficJunction>();
+
+            if (!IsValid(Junction))
+            {
+                continue;
+            }
+
+            Junction->SetActorLocation(GetJunctionLocation(Column, Row));
+            Junction->RoadNetwork = Network;
+            Junction->SetJunctionRadiusCm(JunctionRadiusCm);
+
+            // Added strictly in direction order, so approach index 0 is
+            // always +X, 1 is +Y, 2 is -X and 3 is -Y. That is what lets the
+            // signal phases below name opposing pairs as {0, 2} and {1, 3}
+            // and have it hold at every junction in the grid.
+            for (int32 DirectionIndex = 0;
+                DirectionIndex < 4;
+                ++DirectionIndex)
+            {
+                ATrafficRoad* Road = ApproachByJunctionAndDirection[
+                    JunctionIndex(Column, Row) * 4 + DirectionIndex];
+
+                if (Road)
+                {
+                    Junction->ApproachRoads.Add(Road);
+                }
+            }
+
+            if (bUseTrafficSignals)
+            {
+                TArray<FTrafficSignalPhase> Phases;
+
+                FTrafficSignalPhase FirstAxis;
+                FirstAxis.GreenApproachIndices = { 0, 2 };
+                FirstAxis.GreenDurationSeconds = 8.0f;
+                FirstAxis.ClearanceDurationSeconds = 2.0f;
+                Phases.Add(FirstAxis);
+
+                FTrafficSignalPhase SecondAxis;
+                SecondAxis.GreenApproachIndices = { 1, 3 };
+                SecondAxis.GreenDurationSeconds = 8.0f;
+                SecondAxis.ClearanceDurationSeconds = 2.0f;
+                Phases.Add(SecondAxis);
+
+                Junction->ConfigureSignals(true, Phases);
+            }
+
+            SpawnedActors.Add(Junction);
+            Junctions.Add(Junction);
+
+            // Registers the junction with the network, then builds its
+            // connectors; RebuildJunction's own rebuild is what makes the
+            // network pick up the approach and departure links.
+            Network->AddJunction(Junction);
+            Junction->RebuildJunction();
+
+            if (bUseTrafficSignals)
+            {
+                // Applied after RebuildJunction so the indicator placement
+                // pass has real connectors to place lights against.
+                Junction->SetSignalVisuals(
+                    SignalMesh,
+                    RedSignalMaterial,
+                    YellowSignalMaterial,
+                    GreenSignalMaterial);
+            }
         }
     }
 
     if (IsValid(VehicleClass))
     {
-        for (ATrafficRoad* Spur : Spurs)
+        TArray<ATrafficRoad*> AllRoads;
+
+        for (AActor* Actor : SpawnedActors)
         {
-            SpawnVehiclesOnRoad(Spur, Network, VehiclesPerSpur);
+            if (ATrafficRoad* Road = Cast<ATrafficRoad>(Actor))
+            {
+                AllRoads.Add(Road);
+            }
         }
 
-        for (ATrafficRoad* Link : Links)
+        if (TotalVehicleCount > 0)
         {
-            SpawnVehiclesOnRoad(Link, Network, VehiclesPerRingSegment);
+            // Share the requested population out across the network in
+            // proportion to how much room each road actually has, so no lane
+            // is asked to hold more vehicles than fit.
+            int32 TotalCapacity = 0;
+
+            for (ATrafficRoad* Road : AllRoads)
+            {
+                TotalCapacity += GetRoadVehicleCapacity(Road);
+            }
+
+            if (TotalCapacity <= 0)
+            {
+                UE_LOG(
+                    LogTemp,
+                    Warning,
+                    TEXT("%s built a network with no room for vehicles."),
+                    *GetName());
+            }
+            else
+            {
+                if (TotalVehicleCount > TotalCapacity)
+                {
+                    UE_LOG(
+                        LogTemp,
+                        Warning,
+                        TEXT(
+                            "%s was asked for %d vehicles but the network "
+                            "only holds %d; spawning %d."),
+                        *GetName(),
+                        TotalVehicleCount,
+                        TotalCapacity,
+                        TotalCapacity);
+                }
+
+                const int32 TargetCount =
+                    FMath::Min(TotalVehicleCount, TotalCapacity);
+
+                int32 RemainingToSpawn = TargetCount;
+                int32 RemainingCapacity = TotalCapacity;
+
+                for (ATrafficRoad* Road : AllRoads)
+                {
+                    const int32 RoadCapacity =
+                        GetRoadVehicleCapacity(Road);
+
+                    if (RoadCapacity <= 0 || RemainingCapacity <= 0)
+                    {
+                        continue;
+                    }
+
+                    const int32 Share = FMath::Min(
+                        RemainingToSpawn,
+                        FMath::RoundToInt(
+                            static_cast<float>(RemainingToSpawn) *
+                            RoadCapacity / RemainingCapacity));
+
+                    SpawnVehiclesOnRoad(Road, Network, Share);
+
+                    RemainingToSpawn -= Share;
+                    RemainingCapacity -= RoadCapacity;
+                }
+            }
+        }
+        else
+        {
+            // Stub roads take the spur count, everything else the ring count.
+            for (ATrafficRoad* Road : AllRoads)
+            {
+                const bool bIsStub = StubEnds.ContainsByPredicate(
+                    [Road](const TPair<FVector, ATrafficRoad*>& Entry)
+                    {
+                        return Entry.Value == Road;
+                    });
+
+                SpawnVehiclesOnRoad(
+                    Road,
+                    Network,
+                    bIsStub ? VehiclesPerSpur : VehiclesPerRingSegment);
+            }
         }
     }
     else
@@ -417,6 +684,16 @@ void ATrafficDemoSceneBuilder::BuildDemoScene()
             *GetName());
     }
 
+    UE_LOG(
+        LogTemp,
+        Display,
+        TEXT("%s built a %dx%d grid: %d junctions, %d roads."),
+        *GetName(),
+        Columns,
+        Rows,
+        Junctions.Num(),
+        Network->GetConnectionCount());
+
     if (bSpawnDebugOverlay)
     {
         ATrafficDebugOverlay* Overlay =
@@ -424,7 +701,7 @@ void ATrafficDemoSceneBuilder::BuildDemoScene()
 
         if (IsValid(Overlay))
         {
-            Overlay->SetActorLocation(Center);
+            Overlay->SetActorLocation(Origin);
             Overlay->RoadNetwork = Network;
 
             SpawnedActors.Add(Overlay);
@@ -438,9 +715,15 @@ void ATrafficDemoSceneBuilder::BuildDemoScene()
 
         if (IsValid(Experiment))
         {
-            Experiment->SetActorLocation(Center);
+            Experiment->SetActorLocation(Origin);
             Experiment->RoadNetwork = Network;
-            Experiment->Junction = Junction;
+
+            // On a grid the experiment drives the centre junction, which is
+            // the one whose congestion propagates furthest in every
+            // direction.
+            Experiment->Junction = Junctions.Num() > 0
+                ? Junctions[Junctions.Num() / 2]
+                : nullptr;
 
             SpawnedActors.Add(Experiment);
         }

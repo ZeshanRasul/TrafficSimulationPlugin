@@ -584,6 +584,22 @@ void ATrafficRoadNetwork::ClearConnections()
     RebuildNetwork();
 }
 
+void ATrafficRoadNetwork::ConnectRoads(
+    ATrafficRoad* FirstRoad,
+    ATrafficRoad* SecondRoad)
+{
+    if (!IsValid(FirstRoad) || !IsValid(SecondRoad))
+    {
+        return;
+    }
+
+    Modify();
+
+    BuildConnectionsBetweenRoads(FirstRoad, SecondRoad);
+
+    RebuildNetwork();
+}
+
 void ATrafficRoadNetwork::RegisterVehicle(ATrafficLaneFollower* Vehicle)
 {
     if (!IsValid(Vehicle))

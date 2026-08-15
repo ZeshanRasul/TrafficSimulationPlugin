@@ -151,6 +151,10 @@ void ATrafficLaneFollower::Tick(float DeltaSeconds)
 		return;
 	}
 
+	// Timed so the benchmark can report simulation cost rather than frame
+	// time, which says nothing while a frame rate cap is active.
+	const double TickStartSeconds = FPlatformTime::Seconds();
+
 	UpdatePendingSuccessor();
 	UpdateSpeed(DeltaSeconds);
 	AdvanceAlongLane(DeltaSeconds);
@@ -159,12 +163,18 @@ void ATrafficLaneFollower::Tick(float DeltaSeconds)
 	// vehicle actually ended the frame.
 	UpdateDebugState();
 
-	if (IsActorBeingDestroyed())
+	const bool bDestroyed = IsActorBeingDestroyed();
+
+	if (!bDestroyed)
 	{
-		return;
+		UpdateTransform();
 	}
 
-	UpdateTransform();
+	if (IsValid(RoadNetwork))
+	{
+		RoadNetwork->AddSimulationTimeSeconds(
+			FPlatformTime::Seconds() - TickStartSeconds);
+	}
 }
 
 void ATrafficLaneFollower::UpdatePendingSuccessor()
