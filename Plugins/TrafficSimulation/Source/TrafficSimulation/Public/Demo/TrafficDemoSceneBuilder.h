@@ -94,6 +94,10 @@ private:
     UPROPERTY(EditAnywhere, Category = "Traffic Demo|Rendering")
     TObjectPtr<UMaterialInterface> RoadSurfaceMaterial;
 
+    // Spawns a debug overlay actor already pointed at the built network.
+    UPROPERTY(EditAnywhere, Category = "Traffic Demo|Debug")
+    bool bSpawnDebugOverlay = true;
+
     UPROPERTY(EditAnywhere, Category = "Traffic Demo|Signals")
     bool bUseTrafficSignals = false;
 

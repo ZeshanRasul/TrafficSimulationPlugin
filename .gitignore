@@ -27,6 +27,9 @@ mono_crash.*
 # Build results
 [Dd]ebug/
 [Dd]ebugPublic/
+
+# ...but a Debug folder under Source/ is plugin code, not build output.
+!**/Source/**/[Dd]ebug/
 [Rr]elease/
 [Rr]eleases/
 x64/

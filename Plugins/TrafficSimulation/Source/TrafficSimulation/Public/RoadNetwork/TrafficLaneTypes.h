@@ -257,6 +257,17 @@ enum class ETrafficTurnType : uint8
     UTurn UMETA(DisplayName = "U-Turn")
 };
 
+UENUM(BlueprintType)
+enum class ETrafficSignalState : uint8
+{
+    // No signal is controlling this approach; treated as an always-clear
+    // give-way, not a light colour.
+    None UMETA(DisplayName = "None"),
+    Red UMETA(DisplayName = "Red"),
+    Yellow UMETA(DisplayName = "Yellow"),
+    Green UMETA(DisplayName = "Green")
+};
+
 // A single outgoing option from a lane. A lane inside a junction fans out to
 // several of these, which is why the network cannot store one successor only.
 USTRUCT(BlueprintType)

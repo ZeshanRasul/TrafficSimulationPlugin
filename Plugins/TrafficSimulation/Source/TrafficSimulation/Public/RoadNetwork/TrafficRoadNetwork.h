@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "Debug/TrafficDebugTypes.h"
 #include "RoadNetwork/TrafficLaneTypes.h"
 #include "RoadNetwork/TrafficLaneProvider.h"
 #include "TrafficRoadNetwork.generated.h"
@@ -158,7 +159,19 @@ public:
         float DistanceAlongLaneCm,
         float LaneLengthCm,
         const FTrafficLaneHandle* NextLaneHandle,
-        float& OutGapCm) const;
+        float& OutGapCm,
+        ATrafficLaneFollower*& OutLeader) const;
+
+    const TArray<TWeakObjectPtr<ATrafficLaneFollower>>&
+        GetRegisteredVehicles() const
+    {
+        return RegisteredVehicles;
+    }
+
+    // Rolled up from every registered vehicle's debug state. Cheap enough to
+    // call per frame; also the measurement surface for scale benchmarking.
+    UFUNCTION(BlueprintPure, Category = "Traffic Network|Debug")
+    FTrafficNetworkStats GetNetworkStats() const;
 
 private:
     void DrawDebugConnections() const;

@@ -2,6 +2,7 @@
 #include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Junctions/TrafficJunction.h"
+#include "Materials/MaterialInterface.h"
 #include "TrafficRoad.h"
 #include "RoadNetwork/TrafficRoadNetwork.h"
 
@@ -154,6 +155,10 @@ void ATrafficLaneFollower::Tick(float DeltaSeconds)
 	UpdateSpeed(DeltaSeconds);
 	AdvanceAlongLane(DeltaSeconds);
 
+	// After movement, so the reported lane and distance match where the
+	// vehicle actually ended the frame.
+	UpdateDebugState();
+
 	if (IsActorBeingDestroyed())
 	{
 		return;
@@ -207,6 +212,9 @@ void ATrafficLaneFollower::UpdateSpeed(float DeltaSeconds)
 {
 	float TargetSpeedCmPerSecond = SpeedCmPerSecond;
 
+	ETrafficVehicleConstraint Constraint =
+		ETrafficVehicleConstraint::FreeFlow;
+
 	if (IsYieldingToJunction() && SpeedCmPerSecond > 0.0f)
 	{
 		const float DistanceToLaneEndCm =
@@ -227,9 +235,13 @@ void ATrafficLaneFollower::UpdateSpeed(float DeltaSeconds)
 			if (!bEntryGranted)
 			{
 				TargetSpeedCmPerSecond = 0.0f;
+				Constraint = ETrafficVehicleConstraint::YieldingToJunction;
 			}
 		}
 	}
+
+	DebugState.ForwardGapCm = -1.0f;
+	DebugState.Leader = nullptr;
 
 	// Car-following: never let this vehicle close on whatever is ahead of it,
 	// whether that is still on this lane or has already crossed onto the
@@ -240,6 +252,7 @@ void ATrafficLaneFollower::UpdateSpeed(float DeltaSeconds)
 			bPendingSuccessorValid ? &PendingSuccessor.Lane : nullptr;
 
 		float ForwardGapCm = 0.0f;
+		ATrafficLaneFollower* Leader = nullptr;
 
 		if (RoadNetwork->FindForwardGapCm(
 			this,
@@ -247,11 +260,17 @@ void ATrafficLaneFollower::UpdateSpeed(float DeltaSeconds)
 			DistanceAlongLaneCm,
 			LaneLengthCm,
 			NextLaneHandle,
-			ForwardGapCm))
+			ForwardGapCm,
+			Leader))
 		{
+			DebugState.ForwardGapCm = ForwardGapCm;
+			DebugState.Leader = Leader;
+
+			float FollowingSpeedCmPerSecond = TargetSpeedCmPerSecond;
+
 			if (ForwardGapCm <= MinFollowingGapCm)
 			{
-				TargetSpeedCmPerSecond = 0.0f;
+				FollowingSpeedCmPerSecond = 0.0f;
 			}
 			else if (ForwardGapCm < DesiredFollowingGapCm)
 			{
@@ -263,9 +282,14 @@ void ATrafficLaneFollower::UpdateSpeed(float DeltaSeconds)
 					0.0f,
 					1.0f);
 
-				TargetSpeedCmPerSecond = FMath::Min(
-					TargetSpeedCmPerSecond,
-					SpeedCmPerSecond * Alpha);
+				FollowingSpeedCmPerSecond = SpeedCmPerSecond * Alpha;
+			}
+
+			// Whichever constraint bites hardest is the one worth reporting.
+			if (FollowingSpeedCmPerSecond < TargetSpeedCmPerSecond)
+			{
+				TargetSpeedCmPerSecond = FollowingSpeedCmPerSecond;
+				Constraint = ETrafficVehicleConstraint::Following;
 			}
 		}
 	}
@@ -275,11 +299,120 @@ void ATrafficLaneFollower::UpdateSpeed(float DeltaSeconds)
 		? AccelerationCmPerSecondSquared
 		: BrakingCmPerSecondSquared;
 
+	const float PreviousSpeedCmPerSecond = CurrentSpeedCmPerSecond;
+
 	CurrentSpeedCmPerSecond = FMath::FInterpConstantTo(
 		CurrentSpeedCmPerSecond,
 		TargetSpeedCmPerSecond,
 		DeltaSeconds,
 		RateCmPerSecondSquared);
+
+	DebugState.TargetSpeedCmPerSecond = TargetSpeedCmPerSecond;
+	DebugState.Constraint = Constraint;
+
+	DebugState.bAccelerating =
+		CurrentSpeedCmPerSecond > PreviousSpeedCmPerSecond + KINDA_SMALL_NUMBER;
+
+	DebugState.bBraking =
+		CurrentSpeedCmPerSecond < PreviousSpeedCmPerSecond - KINDA_SMALL_NUMBER;
+}
+
+void ATrafficLaneFollower::UpdateDebugState()
+{
+	DebugState.CurrentSpeedCmPerSecond = CurrentSpeedCmPerSecond;
+	DebugState.DesiredSpeedCmPerSecond = SpeedCmPerSecond;
+	DebugState.CurrentLane = LaneHandle;
+	DebugState.DistanceAlongLaneCm = DistanceAlongLaneCm;
+	DebugState.LaneLengthCm = LaneLengthCm;
+
+	DebugState.bHasNextLane = bPendingSuccessorValid;
+	DebugState.NextLane = bPendingSuccessorValid
+		? PendingSuccessor.Lane
+		: FTrafficLaneHandle();
+
+	DebugState.NextTurnType = bPendingSuccessorValid
+		? PendingSuccessor.TurnType
+		: ETrafficTurnType::Straight;
+
+	DebugState.bNextEntersJunction =
+		bPendingSuccessorValid && PendingSuccessor.EntersJunction();
+
+	DebugState.bJunctionEntryGranted = bEntryGranted;
+
+	DebugState.PendingSignalState = ETrafficSignalState::None;
+
+	if (IsValid(PendingJunction) && PendingConnectorIndex != INDEX_NONE)
+	{
+		FTrafficConnectorLane Connector;
+
+		if (PendingJunction->GetConnector(PendingConnectorIndex, Connector))
+		{
+			DebugState.PendingSignalState =
+				PendingJunction->GetApproachSignalState(
+					Connector.ApproachIndex);
+		}
+	}
+
+	// A vehicle stopped at the end of an open lane with nowhere to go is
+	// reported as such rather than as an unexplained free-flow stop.
+	if (DebugState.Constraint == ETrafficVehicleConstraint::FreeFlow &&
+		!bPendingSuccessorValid &&
+		CurrentSpeedCmPerSecond <= StoppedSpeedThresholdCmPerSecond &&
+		DistanceAlongLaneCm >= LaneLengthCm - KINDA_SMALL_NUMBER)
+	{
+		DebugState.Constraint = ETrafficVehicleConstraint::LaneEnd;
+	}
+
+	if (CurrentSpeedCmPerSecond <= StoppedSpeedThresholdCmPerSecond)
+	{
+		DebugState.MotionState = ETrafficVehicleMotionState::Stopped;
+	}
+	else if (SpeedCmPerSecond > KINDA_SMALL_NUMBER &&
+		CurrentSpeedCmPerSecond >= SpeedCmPerSecond * FreeFlowSpeedFraction)
+	{
+		DebugState.MotionState = ETrafficVehicleMotionState::FreeFlow;
+	}
+	else
+	{
+		DebugState.MotionState = ETrafficVehicleMotionState::Constrained;
+	}
+
+	if (!IsValid(VehicleMesh))
+	{
+		return;
+	}
+
+	if (bHasAppliedMotionState &&
+		AppliedMotionState == DebugState.MotionState)
+	{
+		return;
+	}
+
+	UMaterialInterface* Material = nullptr;
+
+	switch (DebugState.MotionState)
+	{
+	case ETrafficVehicleMotionState::FreeFlow:
+		Material = FreeFlowMaterial;
+		break;
+
+	case ETrafficVehicleMotionState::Constrained:
+		Material = ConstrainedMaterial;
+		break;
+
+	case ETrafficVehicleMotionState::Stopped:
+	default:
+		Material = StoppedMaterial;
+		break;
+	}
+
+	if (Material)
+	{
+		VehicleMesh->SetMaterial(0, Material);
+	}
+
+	AppliedMotionState = DebugState.MotionState;
+	bHasAppliedMotionState = true;
 }
 
 void ATrafficLaneFollower::AdvanceAlongLane(

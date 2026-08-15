@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "Debug/TrafficDebugTypes.h"
 #include "RoadNetwork/TrafficLaneTypes.h"
 #include "RoadNetwork/TrafficLaneProvider.h"
 #include "TrafficLaneFollower.generated.h"
@@ -11,6 +12,7 @@ class USceneComponent;
 class UStaticMeshComponent;
 class ATrafficRoadNetwork;
 class ATrafficJunction;
+class UMaterialInterface;
 
 UENUM(BlueprintType)
 enum class ETrafficLaneEndBehavior : uint8
@@ -65,6 +67,19 @@ public:
         return VehicleLengthCm;
     }
 
+    // Refreshed every tick. Safe to read from the overlay or to inspect on the
+    // actor while the simulation is paused.
+    const FTrafficVehicleDebugState& GetDebugState() const
+    {
+        return DebugState;
+    }
+
+    UFUNCTION(BlueprintPure, Category = "Traffic Vehicle|Debug")
+    FTrafficVehicleDebugState GetDebugStateCopy() const
+    {
+        return DebugState;
+    }
+
 private:
     bool InitializeLane();
 
@@ -84,6 +99,10 @@ private:
     void UpdatePendingSuccessor();
 
     void ReleaseJunctionReservation();
+
+    // Fills in the parts of DebugState that are not already known from
+    // UpdateSpeed, and applies the state colour if materials are assigned.
+    void UpdateDebugState();
 
     UPROPERTY(VisibleAnywhere, Category = "Traffic Vehicle")
     TObjectPtr<USceneComponent> SceneRoot;
@@ -192,6 +211,45 @@ private:
     int32 PendingConnectorIndex = INDEX_NONE;
     bool bPendingSuccessorValid = false;
     bool bEntryGranted = false;
+
+    // Optional: assign all three to recolour the vehicle by motion state.
+    // Left unset, the mesh keeps whatever material it already had and only
+    // the overlay's own drawing conveys state.
+    UPROPERTY(EditAnywhere, Category = "Traffic Vehicle|Debug")
+    TObjectPtr<UMaterialInterface> FreeFlowMaterial;
+
+    UPROPERTY(EditAnywhere, Category = "Traffic Vehicle|Debug")
+    TObjectPtr<UMaterialInterface> ConstrainedMaterial;
+
+    UPROPERTY(EditAnywhere, Category = "Traffic Vehicle|Debug")
+    TObjectPtr<UMaterialInterface> StoppedMaterial;
+
+    // Fraction of desired speed above which the vehicle counts as free
+    // flowing, and below which (approaching zero) it counts as stopped.
+    UPROPERTY(
+        EditAnywhere,
+        Category = "Traffic Vehicle|Debug",
+        meta = (ClampMin = "0.0", UIMin = "0.0", ClampMax = "1.0"))
+    float FreeFlowSpeedFraction = 0.9f;
+
+    UPROPERTY(
+        EditAnywhere,
+        Category = "Traffic Vehicle|Debug",
+        meta = (ClampMin = "0.0", UIMin = "0.0", Units = "cm/s"))
+    float StoppedSpeedThresholdCmPerSecond = 20.0f;
+
+    UPROPERTY(
+        VisibleInstanceOnly,
+        Category = "Traffic Vehicle|Debug",
+        meta = (AllowPrivateAccess = "true"))
+    FTrafficVehicleDebugState DebugState;
+
+    // Tracks what is currently applied so the material is only swapped when
+    // the state actually changes rather than every tick.
+    ETrafficVehicleMotionState AppliedMotionState =
+        ETrafficVehicleMotionState::FreeFlow;
+
+    bool bHasAppliedMotionState = false;
 
     FTrafficLaneHandle LaneHandle;
     float DistanceAlongLaneCm = 0.0f;

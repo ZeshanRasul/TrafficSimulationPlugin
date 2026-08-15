@@ -14,17 +14,6 @@ class UStaticMesh;
 class UStaticMeshComponent;
 class UMaterialInterface;
 
-UENUM(BlueprintType)
-enum class ETrafficSignalState : uint8
-{
-    // No signal is controlling this approach; treated as an always-clear
-    // give-way, not a light colour.
-    None UMETA(DisplayName = "None"),
-    Red UMETA(DisplayName = "Red"),
-    Yellow UMETA(DisplayName = "Yellow"),
-    Green UMETA(DisplayName = "Green")
-};
-
 // One drivable path through the junction box, from an approach lane's exit to
 // a departure lane's entry. Connectors are lanes in their own right: they carry
 // a handle whose RoadId is the junction's id, so vehicles traverse them with
@@ -293,6 +282,17 @@ private:
         Category = "Traffic Junction|Generation",
         meta = (ClampMin = "10.0", UIMin = "10.0", Units = "cm"))
     float ConflictClearanceCm = 350.0f;
+
+    // Connectors leaving one lane are not conflicts - a driver takes one or
+    // the other - but two different vehicles from that lane still share the
+    // stretch of tarmac where those paths have not yet diverged. A vehicle
+    // may not be released from a stop line until the previous vehicle from
+    // the same lane is this far into its own connector. Set to 0 to disable.
+    UPROPERTY(
+        EditAnywhere,
+        Category = "Traffic Junction|Arbitration",
+        meta = (ClampMin = "0.0", UIMin = "0.0", Units = "cm"))
+    float EntryHeadwayCm = 700.0f;
 
     // Bezier handle length as a fraction of the straight-line chord. 0.55
     // approximates a circular arc; lower values tighten the turn.

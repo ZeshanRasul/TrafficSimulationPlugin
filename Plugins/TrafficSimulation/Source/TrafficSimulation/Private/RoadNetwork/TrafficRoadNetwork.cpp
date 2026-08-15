@@ -609,9 +609,11 @@ bool ATrafficRoadNetwork::FindForwardGapCm(
     float DistanceAlongLaneCm,
     float LaneLengthCm,
     const FTrafficLaneHandle* NextLaneHandle,
-    float& OutGapCm) const
+    float& OutGapCm,
+    ATrafficLaneFollower*& OutLeader) const
 {
     OutGapCm = TNumericLimits<float>::Max();
+    OutLeader = nullptr;
 
     bool bFound = false;
 
@@ -672,14 +674,91 @@ bool ATrafficRoadNetwork::FindForwardGapCm(
             bCandidateValid = true;
         }
 
-        if (bCandidateValid)
+        if (bCandidateValid && CandidateGapCm < OutGapCm)
         {
             bFound = true;
-            OutGapCm = FMath::Min(OutGapCm, CandidateGapCm);
+            OutGapCm = CandidateGapCm;
+            OutLeader = Other;
         }
     }
 
     return bFound;
+}
+
+FTrafficNetworkStats ATrafficRoadNetwork::GetNetworkStats() const
+{
+    FTrafficNetworkStats Stats;
+
+    float TotalSpeedCmPerSecond = 0.0f;
+    float TotalSpeedFraction = 0.0f;
+
+    for (const TWeakObjectPtr<ATrafficLaneFollower>& WeakVehicle :
+        RegisteredVehicles)
+    {
+        const ATrafficLaneFollower* Vehicle = WeakVehicle.Get();
+
+        if (!IsValid(Vehicle))
+        {
+            continue;
+        }
+
+        const FTrafficVehicleDebugState& State =
+            Vehicle->GetDebugState();
+
+        ++Stats.TotalVehicles;
+
+        switch (State.MotionState)
+        {
+        case ETrafficVehicleMotionState::FreeFlow:
+            ++Stats.FreeFlowVehicles;
+            break;
+
+        case ETrafficVehicleMotionState::Constrained:
+            ++Stats.ConstrainedVehicles;
+            break;
+
+        case ETrafficVehicleMotionState::Stopped:
+        default:
+            ++Stats.StoppedVehicles;
+            break;
+        }
+
+        if (State.Constraint ==
+            ETrafficVehicleConstraint::YieldingToJunction)
+        {
+            ++Stats.VehiclesYielding;
+        }
+
+        if (FindJunction(State.CurrentLane.RoadId))
+        {
+            ++Stats.VehiclesInsideJunctions;
+        }
+
+        TotalSpeedCmPerSecond += State.CurrentSpeedCmPerSecond;
+
+        if (State.DesiredSpeedCmPerSecond > KINDA_SMALL_NUMBER)
+        {
+            TotalSpeedFraction += FMath::Clamp(
+                State.CurrentSpeedCmPerSecond /
+                State.DesiredSpeedCmPerSecond,
+                0.0f,
+                1.0f);
+        }
+    }
+
+    if (Stats.TotalVehicles > 0)
+    {
+        const float VehicleCount =
+            static_cast<float>(Stats.TotalVehicles);
+
+        Stats.MeanSpeedCmPerSecond =
+            TotalSpeedCmPerSecond / VehicleCount;
+
+        Stats.MeanSpeedFraction =
+            TotalSpeedFraction / VehicleCount;
+    }
+
+    return Stats;
 }
 
 int32 ATrafficRoadNetwork::GetConnectionCount() const

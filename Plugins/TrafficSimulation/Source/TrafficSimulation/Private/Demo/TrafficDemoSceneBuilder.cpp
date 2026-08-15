@@ -1,6 +1,7 @@
 #include "Demo/TrafficDemoSceneBuilder.h"
 
 #include "Components/SceneComponent.h"
+#include "Debug/TrafficDebugOverlay.h"
 #include "Engine/StaticMesh.h"
 #include "Junctions/TrafficJunction.h"
 #include "RoadNetwork/TrafficRoadNetwork.h"
@@ -352,5 +353,19 @@ void ATrafficDemoSceneBuilder::BuildDemoScene()
                 "%s has no VehicleClass assigned; the scene was built "
                 "without vehicles."),
             *GetName());
+    }
+
+    if (bSpawnDebugOverlay)
+    {
+        ATrafficDebugOverlay* Overlay =
+            World->SpawnActor<ATrafficDebugOverlay>();
+
+        if (IsValid(Overlay))
+        {
+            Overlay->SetActorLocation(Center);
+            Overlay->RoadNetwork = Network;
+
+            SpawnedActors.Add(Overlay);
+        }
     }
 }

@@ -8,6 +8,7 @@
 #include "RoadNetwork/TrafficRoadNetwork.h"
 #include "TrafficRoad.h"
 #include "UObject/ConstructorHelpers.h"
+#include "Vehicles/TrafficLaneFollower.h"
 
 namespace
 {
@@ -701,6 +702,55 @@ bool ATrafficJunction::RequestEntry(AActor* Vehicle, int32 ConnectorIndex)
     if (!IsConnectorSignalGreen(ConnectorIndex))
     {
         return false;
+    }
+
+    // Connectors sharing a source lane are not conflicts, because a driver
+    // takes one or the other. Two different vehicles from that lane, however,
+    // still occupy the same tarmac until their paths separate, and car
+    // following cannot see across two different connector lanes. Stagger
+    // their release so the second only leaves once the first is clear of the
+    // shared stretch.
+    if (EntryHeadwayCm > 0.0f)
+    {
+        const FTrafficLaneHandle& OwnSourceLane =
+            Connectors[ConnectorIndex].SourceExit.Lane;
+
+        for (const FTrafficJunctionReservation& Other : Reservations)
+        {
+            if (Other.Vehicle.Get() == Vehicle ||
+                !Other.bGranted ||
+                !Connectors.IsValidIndex(Other.ConnectorIndex))
+            {
+                continue;
+            }
+
+            if (Connectors[Other.ConnectorIndex].SourceExit.Lane !=
+                OwnSourceLane)
+            {
+                continue;
+            }
+
+            const ATrafficLaneFollower* OtherVehicle =
+                Cast<ATrafficLaneFollower>(Other.Vehicle.Get());
+
+            if (!OtherVehicle)
+            {
+                continue;
+            }
+
+            // Granted but still on the approach: it has not begun to clear
+            // the shared stretch at all.
+            if (OtherVehicle->GetCurrentLaneHandle() !=
+                Connectors[Other.ConnectorIndex].Lane.Handle)
+            {
+                return false;
+            }
+
+            if (OtherVehicle->GetDistanceAlongLaneCm() < EntryHeadwayCm)
+            {
+                return false;
+            }
+        }
     }
 
     const TArray<int32>& Conflicts =
