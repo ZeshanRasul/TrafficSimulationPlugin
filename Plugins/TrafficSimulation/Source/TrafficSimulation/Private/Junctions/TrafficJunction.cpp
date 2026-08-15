@@ -92,14 +92,42 @@ ATrafficJunction::ATrafficJunction()
     }
 #endif
 
-    // A shipped engine asset, so signal lights render out of the box without
-    // requiring a project-specific mesh to be assigned first.
+    JunctionSurface =
+        CreateDefaultSubobject<UStaticMeshComponent>(
+            TEXT("JunctionSurface"));
+
+    if (JunctionSurface)
+    {
+        JunctionSurface->SetupAttachment(SceneRoot);
+
+        JunctionSurface->SetCollisionEnabled(
+            ECollisionEnabled::NoCollision);
+    }
+
+    // Shipped engine assets, so a junction renders out of the box without
+    // requiring project-specific meshes to be assigned first.
     static ConstructorHelpers::FObjectFinder<UStaticMesh> SphereMeshFinder(
         TEXT("/Engine/BasicShapes/Sphere.Sphere"));
 
     if (SphereMeshFinder.Succeeded())
     {
         SignalMesh = SphereMeshFinder.Object;
+    }
+
+    static ConstructorHelpers::FObjectFinder<UStaticMesh> CubeMeshFinder(
+        TEXT("/Engine/BasicShapes/Cube.Cube"));
+
+    if (CubeMeshFinder.Succeeded())
+    {
+        JunctionSurfaceMesh = CubeMeshFinder.Object;
+    }
+
+    static ConstructorHelpers::FObjectFinder<UStaticMesh> CylinderMeshFinder(
+        TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
+
+    if (CylinderMeshFinder.Succeeded())
+    {
+        SignalPoleMesh = CylinderMeshFinder.Object;
     }
 }
 
@@ -549,6 +577,7 @@ void ATrafficJunction::RebuildJunction()
     }
 
     BuildConflictMatrix();
+    RebuildJunctionSurface();
     RebuildSignalIndicators();
 
     // The conflict count is the junction's capacity ceiling: conflicting
@@ -1054,6 +1083,22 @@ void ATrafficJunction::SetSignalVisuals(
     RebuildSignalIndicators();
 }
 
+void ATrafficJunction::SetSurfaceVisuals(
+    UStaticMesh* NewSurfaceMesh,
+    UMaterialInterface* NewSurfaceMaterial)
+{
+    // Only overridden when supplied, so leaving the builder's slot empty
+    // keeps whatever the junction already had rather than clearing it.
+    if (NewSurfaceMesh)
+    {
+        JunctionSurfaceMesh = NewSurfaceMesh;
+    }
+
+    JunctionSurfaceMaterial = NewSurfaceMaterial;
+
+    RebuildJunctionSurface();
+}
+
 bool ATrafficJunction::IsConnectorSignalGreen(int32 ConnectorIndex) const
 {
     if (!bUseTrafficSignals)
@@ -1102,6 +1147,85 @@ ETrafficSignalState ATrafficJunction::GetApproachSignalState(
         : ETrafficSignalState::Red;
 }
 
+void ATrafficJunction::RebuildJunctionSurface()
+{
+    if (!IsValid(JunctionSurface))
+    {
+        return;
+    }
+
+    if (Connectors.Num() == 0 || !JunctionSurfaceMesh)
+    {
+        JunctionSurface->SetVisibility(false);
+        return;
+    }
+
+    // Bounds of everything vehicles actually drive over inside the junction.
+    FBox ConnectorBounds(ForceInit);
+
+    for (const FTrafficConnectorLane& Connector : Connectors)
+    {
+        for (const FTrafficLaneSample& Sample : Connector.Lane.Samples)
+        {
+            ConnectorBounds += Sample.Location;
+        }
+    }
+
+    if (!ConnectorBounds.IsValid)
+    {
+        JunctionSurface->SetVisibility(false);
+        return;
+    }
+
+    const FVector BoundsSize = ConnectorBounds.GetSize();
+
+    float WidthCm =
+        BoundsSize.X + JunctionSurfacePaddingCm * 2.0f;
+
+    float DepthCm =
+        BoundsSize.Y + JunctionSurfacePaddingCm * 2.0f;
+
+    if (bPreserveJunctionSurfaceAspect)
+    {
+        // Square it off to the larger side, so an authored tile keeps the
+        // proportions its markings were drawn for.
+        const float SquareCm = FMath::Max(WidthCm, DepthCm);
+
+        WidthCm = SquareCm;
+        DepthCm = SquareCm;
+    }
+
+    JunctionSurface->SetStaticMesh(JunctionSurfaceMesh);
+
+    if (JunctionSurfaceMaterial)
+    {
+        JunctionSurface->SetMaterial(0, JunctionSurfaceMaterial);
+    }
+
+    // Taken from the mesh's own bounds rather than assumed, so an imported
+    // junction tile of any authored size lands at the right scale.
+    const FVector MeshSize =
+        JunctionSurfaceMesh->GetBounds().BoxExtent * 2.0f;
+
+    JunctionSurface->SetWorldScale3D(
+        FVector(
+            WidthCm / FMath::Max(MeshSize.X, 1.0f),
+            DepthCm / FMath::Max(MeshSize.Y, 1.0f),
+            FMath::Max(JunctionSurfaceThicknessCm, 1.0f) /
+                FMath::Max(MeshSize.Z, 1.0f)));
+
+    // Sunk just below the driving surface so it reads as the road the
+    // connectors sit on rather than a slab laid over them.
+    const FVector SurfaceCentre(
+        ConnectorBounds.GetCenter().X,
+        ConnectorBounds.GetCenter().Y,
+        ConnectorBounds.Min.Z - JunctionSurfaceThicknessCm * 0.5f);
+
+    JunctionSurface->SetWorldLocation(SurfaceCentre);
+    JunctionSurface->SetWorldRotation(FRotator::ZeroRotator);
+    JunctionSurface->SetVisibility(true);
+}
+
 void ATrafficJunction::RebuildSignalIndicators()
 {
     for (UStaticMeshComponent* Indicator : SignalIndicators)
@@ -1112,7 +1236,16 @@ void ATrafficJunction::RebuildSignalIndicators()
         }
     }
 
+    for (UStaticMeshComponent* Pole : SignalPoles)
+    {
+        if (IsValid(Pole))
+        {
+            Pole->DestroyComponent();
+        }
+    }
+
     SignalIndicators.Reset();
+    SignalPoles.Reset();
     SignalIndicatorApproachIndices.Reset();
 
     if (!bUseTrafficSignals || !SignalMesh)
@@ -1188,6 +1321,53 @@ void ATrafficJunction::RebuildSignalIndicators()
 
         SignalIndicators.Add(Indicator);
         SignalIndicatorApproachIndices.Add(ApproachIndex);
+
+        if (!SignalPoleMesh)
+        {
+            continue;
+        }
+
+        UStaticMeshComponent* Pole =
+            NewObject<UStaticMeshComponent>(
+                this,
+                NAME_None,
+                RF_Transient);
+
+        if (!Pole)
+        {
+            continue;
+        }
+
+        Pole->SetStaticMesh(SignalPoleMesh);
+        Pole->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+        Pole->SetMobility(EComponentMobility::Movable);
+        Pole->SetupAttachment(SceneRoot);
+        Pole->RegisterComponent();
+
+        if (SignalPoleMaterial)
+        {
+            Pole->SetMaterial(0, SignalPoleMaterial);
+        }
+
+        // Runs from the road surface up to the light, so the two together
+        // read as a signal on a post.
+        const float PoleHeightCm = FMath::Max(SignalHeightCm, 1.0f);
+
+        Pole->SetWorldLocation(
+            FVector(
+                Location.X,
+                Location.Y,
+                ApproachTransform.GetLocation().Z + PoleHeightCm * 0.5f));
+
+        // The engine cylinder is 100 uu tall and 100 uu across, so height
+        // maps to Z and thickness to X and Y.
+        Pole->SetWorldScale3D(
+            FVector(
+                SignalPoleWidthCm / 100.0f,
+                SignalPoleWidthCm / 100.0f,
+                PoleHeightCm / 100.0f));
+
+        SignalPoles.Add(Pole);
     }
 
     UpdateSignalIndicatorColours();

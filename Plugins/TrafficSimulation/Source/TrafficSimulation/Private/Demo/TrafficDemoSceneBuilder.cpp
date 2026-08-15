@@ -2,8 +2,10 @@
 
 #include "Components/SceneComponent.h"
 #include "Debug/TrafficDebugOverlay.h"
+#include "Demo/TrafficCameraRig.h"
 #include "Demo/TrafficCongestionExperiment.h"
 #include "Engine/StaticMesh.h"
+#include "EngineUtils.h"
 #include "Junctions/TrafficJunction.h"
 #include "Materials/MaterialInterface.h"
 #include "RoadNetwork/TrafficRoadNetwork.h"
@@ -22,14 +24,28 @@ ATrafficDemoSceneBuilder::ATrafficDemoSceneBuilder()
     // complete scene without any assets having to be assigned by hand. Every
     // one of these remains overridable in the details panel.
 
-    // A cube rather than a plane: the road surface is extruded along the
-    // spline, so a solid shape gives the carriageway real thickness.
-    static ConstructorHelpers::FObjectFinder<UStaticMesh> CubeMeshFinder(
-        TEXT("/Engine/BasicShapes/Cube.Cube"));
+    // The imported road tile if it is present, so the scene comes up with
+    // markings; otherwise a cube, which at least gives the carriageway real
+    // thickness when extruded along the spline.
+    static ConstructorHelpers::FObjectFinder<UStaticMesh> RoadMeshFinder(
+        TEXT("/Game/Models/road-straight.road-straight"));
 
-    if (CubeMeshFinder.Succeeded())
+    if (RoadMeshFinder.Succeeded())
     {
-        RoadSurfaceMesh = CubeMeshFinder.Object;
+        RoadSurfaceMesh = RoadMeshFinder.Object;
+
+        // The imported tile runs long on Y.
+        RoadSurfaceForwardAxis = ESplineMeshAxis::Y;
+    }
+    else
+    {
+        static ConstructorHelpers::FObjectFinder<UStaticMesh> CubeMeshFinder(
+            TEXT("/Engine/BasicShapes/Cube.Cube"));
+
+        if (CubeMeshFinder.Succeeded())
+        {
+            RoadSurfaceMesh = CubeMeshFinder.Object;
+        }
     }
 
     static ConstructorHelpers::FObjectFinder<UStaticMesh> SphereMeshFinder(
@@ -38,6 +54,16 @@ ATrafficDemoSceneBuilder::ATrafficDemoSceneBuilder()
     if (SphereMeshFinder.Succeeded())
     {
         SignalMesh = SphereMeshFinder.Object;
+    }
+
+    // A four-way crossing, matching the four approaches every junction in the
+    // grid has. Falls back to the junction's own default if not found.
+    static ConstructorHelpers::FObjectFinder<UStaticMesh> CrossroadMeshFinder(
+        TEXT("/Game/Models/road-crossroad.road-crossroad"));
+
+    if (CrossroadMeshFinder.Succeeded())
+    {
+        JunctionSurfaceMesh = CrossroadMeshFinder.Object;
     }
 
     // Placeholder only. No road surface material exists in the project yet,
@@ -97,10 +123,17 @@ ATrafficRoad* ATrafficDemoSceneBuilder::SpawnRoad(
 
     Road->SetActorLocation(FVector::ZeroVector);
     Road->SetLaneCount(LaneCount);
+
+    // Axis first: SetRoadSurface rebuilds the surface, and doing it in this
+    // order avoids building it once with the wrong orientation.
+    Road->SetRoadSurfaceOrientation(
+        RoadSurfaceForwardAxis,
+        RoadSurfaceRollDegrees);
     Road->SetRoadSurface(RoadSurfaceMesh, RoadSurfaceMaterial);
+
     Road->SetSplinePoints(WorldPoints, bRoadClosedLoop);
 
-    SpawnedActors.Add(Road);
+    RegisterSpawnedActor(Road);
 
     return Road;
 }
@@ -166,7 +199,7 @@ ATrafficRoadNetwork* ATrafficDemoSceneBuilder::ResolveNetwork()
 
         if (IsValid(SpawnedNetwork))
         {
-            SpawnedActors.Add(SpawnedNetwork);
+            RegisterSpawnedActor(SpawnedNetwork);
         }
     }
 
@@ -258,22 +291,120 @@ void ATrafficDemoSceneBuilder::SpawnVehiclesOnRoad(
 
         NewVehicle->FinishSpawning(SpawnTransform);
 
-        SpawnedActors.Add(NewVehicle);
+        RegisterSpawnedActor(NewVehicle);
     }
+}
+
+void ATrafficDemoSceneBuilder::EnsureBuilderId()
+{
+    if (!BuilderId.IsValid())
+    {
+        BuilderId = FGuid::NewGuid();
+    }
+}
+
+void ATrafficDemoSceneBuilder::PostActorCreated()
+{
+    Super::PostActorCreated();
+
+    EnsureBuilderId();
+}
+
+void ATrafficDemoSceneBuilder::PostLoad()
+{
+    Super::PostLoad();
+
+    EnsureBuilderId();
+}
+
+void ATrafficDemoSceneBuilder::PostDuplicate(bool bDuplicateForPIE)
+{
+    Super::PostDuplicate(bDuplicateForPIE);
+
+    if (!bDuplicateForPIE)
+    {
+        // A copied builder must own a separate scene, or clearing one would
+        // take the original's actors with it.
+        BuilderId.Invalidate();
+    }
+
+    EnsureBuilderId();
+}
+
+FName ATrafficDemoSceneBuilder::GetSceneTag() const
+{
+    return FName(
+        *FString::Printf(
+            TEXT("TrafficDemoScene_%s"),
+            *BuilderId.ToString(EGuidFormats::Digits)));
+}
+
+void ATrafficDemoSceneBuilder::RegisterSpawnedActor(AActor* Actor)
+{
+    if (!IsValid(Actor))
+    {
+        return;
+    }
+
+    Actor->Tags.AddUnique(GetSceneTag());
+
+    SpawnedActors.Add(Actor);
 }
 
 void ATrafficDemoSceneBuilder::ClearDemoScene()
 {
+    EnsureBuilderId();
+
+    UWorld* World = GetWorld();
+
+    if (!World)
+    {
+        SpawnedActors.Reset();
+        SpawnedNetwork = nullptr;
+
+        return;
+    }
+
+    // Driven by the tag rather than the in-memory list, so a scene left over
+    // from a previous editor session is still cleared rather than being built
+    // on top of.
+    const FName SceneTag = GetSceneTag();
+
+    int32 DestroyedCount = 0;
+
+    for (TActorIterator<AActor> It(World); It; ++It)
+    {
+        AActor* Actor = *It;
+
+        if (IsValid(Actor) && Actor->Tags.Contains(SceneTag))
+        {
+            Actor->Destroy();
+            ++DestroyedCount;
+        }
+    }
+
+    // Anything spawned this session that somehow missed the tag.
     for (AActor* Actor : SpawnedActors)
     {
         if (IsValid(Actor))
         {
             Actor->Destroy();
+            ++DestroyedCount;
         }
     }
 
     SpawnedActors.Reset();
     SpawnedNetwork = nullptr;
+
+    if (DestroyedCount > 0)
+    {
+        UE_LOG(
+            LogTemp,
+            Display,
+            TEXT("%s cleared %d actors."),
+            *GetName(),
+            DestroyedCount);
+    }
 }
 
 void ATrafficDemoSceneBuilder::BuildDemoScene()
@@ -556,13 +687,20 @@ void ATrafficDemoSceneBuilder::BuildDemoScene()
                 Junction->ConfigureSignals(true, Phases);
             }
 
-            SpawnedActors.Add(Junction);
+            RegisterSpawnedActor(Junction);
             Junctions.Add(Junction);
 
             // Registers the junction with the network, then builds its
             // connectors; RebuildJunction's own rebuild is what makes the
             // network pick up the approach and departure links.
             Network->AddJunction(Junction);
+
+            // Set before the rebuild so the crossing is built with the right
+            // mesh and material in one pass.
+            Junction->SetSurfaceVisuals(
+                JunctionSurfaceMesh,
+                RoadSurfaceMaterial);
+
             Junction->RebuildJunction();
 
             if (bUseTrafficSignals)
@@ -694,6 +832,20 @@ void ATrafficDemoSceneBuilder::BuildDemoScene()
         Junctions.Num(),
         Network->GetConnectionCount());
 
+    if (bSpawnCameraRig)
+    {
+        ATrafficCameraRig* CameraRig =
+            World->SpawnActor<ATrafficCameraRig>();
+
+        if (IsValid(CameraRig))
+        {
+            CameraRig->SetActorLocation(Origin);
+            CameraRig->RoadNetwork = Network;
+
+            RegisterSpawnedActor(CameraRig);
+        }
+    }
+
     if (bSpawnDebugOverlay)
     {
         ATrafficDebugOverlay* Overlay =
@@ -704,7 +856,7 @@ void ATrafficDemoSceneBuilder::BuildDemoScene()
             Overlay->SetActorLocation(Origin);
             Overlay->RoadNetwork = Network;
 
-            SpawnedActors.Add(Overlay);
+            RegisterSpawnedActor(Overlay);
         }
     }
 
@@ -725,7 +877,7 @@ void ATrafficDemoSceneBuilder::BuildDemoScene()
                 ? Junctions[Junctions.Num() / 2]
                 : nullptr;
 
-            SpawnedActors.Add(Experiment);
+            RegisterSpawnedActor(Experiment);
         }
     }
 }

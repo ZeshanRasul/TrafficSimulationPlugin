@@ -13,6 +13,7 @@ class UStaticMeshComponent;
 class ATrafficRoadNetwork;
 class ATrafficJunction;
 class UMaterialInterface;
+class UStaticMesh;
 
 UENUM(BlueprintType)
 enum class ETrafficLaneEndBehavior : uint8
@@ -117,6 +118,8 @@ private:
 
     void ReleaseJunctionReservation();
 
+    void ApplyMeshVariant();
+
     // Fills in the parts of DebugState that are not already known from
     // UpdateSpeed, and applies the state colour if materials are assigned.
     void UpdateDebugState();
@@ -209,6 +212,30 @@ private:
         Category = "Traffic Vehicle|Presentation",
         meta = (Units = "cm"))
     float HeightOffsetCm = 60.0f;
+
+    // One is picked per vehicle on spawn, so a populated network is not a
+    // fleet of identical cars. Leave empty to keep whatever mesh the
+    // Blueprint already has.
+    UPROPERTY(EditAnywhere, Category = "Traffic Vehicle|Presentation")
+    TArray<TObjectPtr<UStaticMesh>> MeshVariants;
+
+    // Applied to whichever variant is chosen. Imported assets rarely face
+    // down +X at the scale the simulation works in, and correcting that on
+    // the component keeps the lane maths in centimetres regardless.
+    UPROPERTY(EditAnywhere, Category = "Traffic Vehicle|Presentation")
+    FRotator MeshRotationOffset = FRotator::ZeroRotator;
+
+    UPROPERTY(
+        EditAnywhere,
+        Category = "Traffic Vehicle|Presentation",
+        meta = (ClampMin = "0.01", UIMin = "0.01"))
+    float MeshScale = 1.0f;
+
+    // When set, the chosen variant is scaled so its longest horizontal axis
+    // matches VehicleLengthCm. Makes assets of any source size agree with the
+    // gaps the simulation is actually keeping.
+    UPROPERTY(EditAnywhere, Category = "Traffic Vehicle|Presentation")
+    bool bScaleMeshToVehicleLength = true;
 
     UPROPERTY(
         EditInstanceOnly,

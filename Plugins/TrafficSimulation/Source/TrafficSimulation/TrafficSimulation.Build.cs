@@ -38,7 +38,9 @@ public class TrafficSimulation : ModuleRules
 				"Engine",
 				"Slate",
 				"SlateCore",
-				// ... add private dependencies that you statically link with here ...	
+				// Needed by the camera rig to bind viewpoint keys.
+				"InputCore",
+				// ... add private dependencies that you statically link with here ...
 			}
 			);
 		

@@ -325,15 +325,38 @@ void ATrafficRoad::RebuildRoadSurface()
 	const FVector MeshSize =
 		RoadSurfaceMesh->GetBounds().BoxExtent * 2.0f;
 
-	if (MeshSize.Y <= KINDA_SMALL_NUMBER ||
-		MeshSize.Z <= KINDA_SMALL_NUMBER)
+	// A spline mesh stretches along its forward axis and scales the other
+	// two, so which of the mesh's dimensions carry the road's width and
+	// thickness depends on which axis was chosen as forward.
+	float MeshWidthCm = MeshSize.Y;
+	float MeshThicknessCm = MeshSize.Z;
+
+	switch (RoadSurfaceForwardAxis)
+	{
+	case ESplineMeshAxis::Y:
+		MeshWidthCm = MeshSize.X;
+		MeshThicknessCm = MeshSize.Z;
+		break;
+
+	case ESplineMeshAxis::Z:
+		MeshWidthCm = MeshSize.X;
+		MeshThicknessCm = MeshSize.Y;
+		break;
+
+	case ESplineMeshAxis::X:
+	default:
+		break;
+	}
+
+	if (MeshWidthCm <= KINDA_SMALL_NUMBER ||
+		MeshThicknessCm <= KINDA_SMALL_NUMBER)
 	{
 		return;
 	}
 
 	const FVector2D SurfaceScale(
-		RoadWidthCm / MeshSize.Y,
-		RoadThicknessCm / MeshSize.Z);
+		RoadWidthCm / MeshWidthCm,
+		RoadThicknessCm / MeshThicknessCm);
 
 	RoadSurfaceComponents.Reserve(SegmentCount);
 
@@ -383,8 +406,10 @@ void ATrafficRoad::RebuildRoadSurface()
 
 		SurfaceComponent->SetupAttachment(RoadSpline);
 
-		SurfaceComponent->SetStaticMesh(RoadSurfaceMesh);        SurfaceComponent->SetForwardAxis(
-			ESplineMeshAxis::X,
+		SurfaceComponent->SetStaticMesh(RoadSurfaceMesh);
+
+		SurfaceComponent->SetForwardAxis(
+			RoadSurfaceForwardAxis,
 			false);
 
 		SurfaceComponent->SetStartAndEnd(
@@ -393,6 +418,12 @@ void ATrafficRoad::RebuildRoadSurface()
 			EndPosition,
 			EndTangent,
 			false);
+
+		const float RollRadians =
+			FMath::DegreesToRadians(RoadSurfaceRollDegrees);
+
+		SurfaceComponent->SetStartRoll(RollRadians, false);
+		SurfaceComponent->SetEndRoll(RollRadians, false);
 
 		SurfaceComponent->SetStartScale(
 			SurfaceScale,
@@ -569,6 +600,16 @@ void ATrafficRoad::SetLaneCount(int32 NewLaneCount)
 	LaneCount = FMath::Max(1, NewLaneCount);
 
 	RebuildGeneratedLanes();
+	RebuildRoadSurface();
+}
+
+void ATrafficRoad::SetRoadSurfaceOrientation(
+	TEnumAsByte<ESplineMeshAxis::Type> NewForwardAxis,
+	float NewRollDegrees)
+{
+	RoadSurfaceForwardAxis = NewForwardAxis;
+	RoadSurfaceRollDegrees = NewRollDegrees;
+
 	RebuildRoadSurface();
 }
 

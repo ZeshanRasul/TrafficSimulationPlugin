@@ -260,6 +260,15 @@ public:
         UMaterialInterface* NewYellowMaterial,
         UMaterialInterface* NewGreenMaterial);
 
+    // Lets a builder give the junction its crossing mesh and the same road
+    // material its approaches use. A procedurally spawned junction starts
+    // from class defaults, so anything set by hand on a previous one is gone
+    // after a rebuild; the builder has to supply these every time.
+    UFUNCTION(BlueprintCallable, Category = "Traffic Junction|Rendering")
+    void SetSurfaceVisuals(
+        UStaticMesh* NewSurfaceMesh,
+        UMaterialInterface* NewSurfaceMaterial);
+
     UPROPERTY(
         EditInstanceOnly,
         BlueprintReadOnly,
@@ -277,11 +286,40 @@ private:
     TObjectPtr<USceneComponent> SceneRoot;
 
 #if WITH_EDITORONLY_DATA
-    // The junction has no mesh, so this is the only thing that makes it
-    // visible and click-selectable in the editor viewport.
     UPROPERTY(VisibleAnywhere, Category = "Traffic Junction")
     TObjectPtr<UBillboardComponent> EditorIcon;
 #endif
+
+    UPROPERTY(VisibleAnywhere, Category = "Traffic Junction|Rendering")
+    TObjectPtr<UStaticMeshComponent> JunctionSurface;
+
+    UPROPERTY(EditAnywhere, Category = "Traffic Junction|Rendering")
+    TObjectPtr<UStaticMesh> JunctionSurfaceMesh;
+
+    // Left unset, the surface takes whatever material the mesh carries.
+    // Assign the road material here so the junction matches its approaches.
+    UPROPERTY(EditAnywhere, Category = "Traffic Junction|Rendering")
+    TObjectPtr<UMaterialInterface> JunctionSurfaceMaterial;
+
+    // Grown beyond the connector bounds so the slab meets the approach roads
+    // rather than leaving a seam short of them.
+    UPROPERTY(
+        EditAnywhere,
+        Category = "Traffic Junction|Rendering",
+        meta = (ClampMin = "0.0", UIMin = "0.0", Units = "cm"))
+    float JunctionSurfacePaddingCm = 260.0f;
+
+    UPROPERTY(
+        EditAnywhere,
+        Category = "Traffic Junction|Rendering",
+        meta = (ClampMin = "1.0", UIMin = "1.0", Units = "cm"))
+    float JunctionSurfaceThicknessCm = 10.0f;
+
+    // Scales the surface equally on both axes rather than fitting width and
+    // depth independently. An authored intersection tile has its markings
+    // laid out for a fixed aspect, and stretching one axis distorts them.
+    UPROPERTY(EditAnywhere, Category = "Traffic Junction|Rendering")
+    bool bPreserveJunctionSurfaceAspect = true;
 
     void EnsureJunctionId();
 
@@ -307,6 +345,11 @@ private:
     bool HasExitSpace(int32 ConnectorIndex, AActor* Vehicle) const;
 
     void AdvanceSignals(float DeltaSeconds);
+
+    // Sizes a slab to cover the area the connectors sweep through, so the
+    // junction reads as a piece of road rather than a gap the approach roads
+    // stop short of.
+    void RebuildJunctionSurface();
 
     void RebuildSignalIndicators();
 
@@ -473,8 +516,25 @@ private:
             Units = "cm"))
     float SignalMeshScaleCm = 50.0f;
 
+    // A pole under each light, so a signal reads as a signal rather than a
+    // sphere hanging in mid air.
+    UPROPERTY(EditAnywhere, Category = "Traffic Junction|Signals")
+    TObjectPtr<UStaticMesh> SignalPoleMesh;
+
+    UPROPERTY(EditAnywhere, Category = "Traffic Junction|Signals")
+    TObjectPtr<UMaterialInterface> SignalPoleMaterial;
+
+    UPROPERTY(
+        EditAnywhere,
+        Category = "Traffic Junction|Signals",
+        meta = (ClampMin = "1.0", UIMin = "1.0", Units = "cm"))
+    float SignalPoleWidthCm = 22.0f;
+
     UPROPERTY(Transient)
     TArray<TObjectPtr<UStaticMeshComponent>> SignalIndicators;
+
+    UPROPERTY(Transient)
+    TArray<TObjectPtr<UStaticMeshComponent>> SignalPoles;
 
     // Parallel to SignalIndicators: approaches with no connector (a dead-end
     // spur) get no indicator, so the two arrays cannot be assumed to line up

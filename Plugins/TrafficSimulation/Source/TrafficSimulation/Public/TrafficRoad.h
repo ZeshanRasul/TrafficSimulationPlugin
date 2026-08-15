@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Components/SplineMeshComponent.h"
 #include "GameFramework/Actor.h"
 #include "RoadNetwork/TrafficLaneTypes.h"
 #include "RoadNetwork/TrafficLaneProvider.h"
@@ -62,6 +63,11 @@ public:
     void SetRoadSurface(
         UStaticMesh* NewSurfaceMesh,
         UMaterialInterface* NewSurfaceMaterial);
+
+    UFUNCTION(BlueprintCallable, Category = "Traffic Road|Rendering")
+    void SetRoadSurfaceOrientation(
+        TEnumAsByte<ESplineMeshAxis::Type> NewForwardAxis,
+        float NewRollDegrees);
 
     UFUNCTION(BlueprintCallable, Category = "Traffic Road|Shape")
     void SetLaneCount(int32 NewLaneCount);
@@ -175,6 +181,27 @@ private:
         Category = "Traffic Road|Rendering",
         meta = (AllowPrivateAccess = "true"))
     TObjectPtr<UMaterialInterface> RoadSurfaceMaterial;
+
+    // Which axis of the surface mesh runs along the road. Imported tiles are
+    // rarely authored down +X, and picking the wrong one lays the road out
+    // sideways. The cross-section scaling follows from this.
+    UPROPERTY(
+        EditAnywhere,
+        BlueprintReadOnly,
+        Category = "Traffic Road|Rendering",
+        meta = (AllowPrivateAccess = "true"))
+    TEnumAsByte<ESplineMeshAxis::Type> RoadSurfaceForwardAxis =
+        ESplineMeshAxis::X;
+
+    // Rotation about the forward axis. Choosing the forward axis fixes which
+    // way the tile runs but not which of its faces ends up pointing at the
+    // sky, so a tile can come out on its side; 90 or 180 here rights it.
+    UPROPERTY(
+        EditAnywhere,
+        BlueprintReadOnly,
+        Category = "Traffic Road|Rendering",
+        meta = (AllowPrivateAccess = "true", Units = "deg"))
+    float RoadSurfaceRollDegrees = 0.0f;
 
     UPROPERTY(
         EditAnywhere,

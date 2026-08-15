@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Components/SplineMeshComponent.h"
 #include "GameFramework/Actor.h"
 #include "TrafficDemoSceneBuilder.generated.h"
 
@@ -24,6 +25,10 @@ class TRAFFICSIMULATION_API ATrafficDemoSceneBuilder : public AActor
 
 public:
     ATrafficDemoSceneBuilder();
+
+    virtual void PostActorCreated() override;
+    virtual void PostLoad() override;
+    virtual void PostDuplicate(bool bDuplicateForPIE) override;
 
     // Destroys anything from a previous build, then lays out roads, the
     // junction, the ring, and vehicles from scratch. Safe to press repeatedly
@@ -54,6 +59,16 @@ private:
         int32 VehicleCount);
 
     ATrafficRoadNetwork* ResolveNetwork();
+
+    void EnsureBuilderId();
+
+    // Tag written onto everything this builder spawns. Recorded on the actors
+    // themselves rather than only in a list here, because that list does not
+    // survive a restart while the actors do - which previously left a scene
+    // that could not be cleared and got built on top of instead.
+    FName GetSceneTag() const;
+
+    void RegisterSpawnedActor(AActor* Actor);
 
     // How many vehicles a road can take without breaching MinVehicleSpacingCm.
     int32 GetRoadVehicleCapacity(ATrafficRoad* Road) const;
@@ -149,9 +164,32 @@ private:
     UPROPERTY(EditAnywhere, Category = "Traffic Demo|Rendering")
     TObjectPtr<UMaterialInterface> RoadSurfaceMaterial;
 
+    // Which axis of RoadSurfaceMesh runs along the road. A tile authored
+    // long on Y needs Y here, or every road is laid out sideways.
+    UPROPERTY(EditAnywhere, Category = "Traffic Demo|Rendering")
+    TEnumAsByte<ESplineMeshAxis::Type> RoadSurfaceForwardAxis =
+        ESplineMeshAxis::X;
+
+    // Rotation about the forward axis, for when the tile lands on its side.
+    UPROPERTY(
+        EditAnywhere,
+        Category = "Traffic Demo|Rendering",
+        meta = (Units = "deg"))
+    float RoadSurfaceRollDegrees = 0.0f;
+
+    // The crossing mesh every junction is built with. Junctions are spawned
+    // fresh on each build, so this has to be set here rather than on a
+    // placed junction, which a rebuild would discard.
+    UPROPERTY(EditAnywhere, Category = "Traffic Demo|Rendering")
+    TObjectPtr<UStaticMesh> JunctionSurfaceMesh;
+
     // Spawns a debug overlay actor already pointed at the built network.
     UPROPERTY(EditAnywhere, Category = "Traffic Demo|Debug")
     bool bSpawnDebugOverlay = true;
+
+    // Spawns the preset camera rig and hands it the view on begin play.
+    UPROPERTY(EditAnywhere, Category = "Traffic Demo|Debug")
+    bool bSpawnCameraRig = false;
 
     // Spawns the scripted congestion demonstration, wired to the built
     // network and junction. Off by default so an ordinary demo scene runs on
@@ -233,8 +271,13 @@ private:
         meta = (ClampMin = "10.0", UIMin = "10.0"))
     float MaxVehicleSpeedCmPerSecond = 700.0f;
 
-    // Everything this builder spawned, so ClearDemoScene can undo it without
-    // touching actors placed by hand.
+    // Identifies this builder's own scene, so two builders in one level do
+    // not clear each other's work. Saved, unlike the list below.
+    UPROPERTY(VisibleInstanceOnly, Category = "Traffic Demo|Identity")
+    FGuid BuilderId;
+
+    // Fast path for clearing within a session. The tag on each actor is the
+    // authoritative record; this is only a convenience.
     UPROPERTY(Transient)
     TArray<TObjectPtr<AActor>> SpawnedActors;
 

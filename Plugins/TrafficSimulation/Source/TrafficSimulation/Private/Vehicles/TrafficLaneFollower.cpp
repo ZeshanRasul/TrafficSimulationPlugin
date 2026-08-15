@@ -29,6 +29,8 @@ void ATrafficLaneFollower::BeginPlay()
 {
 	Super::BeginPlay();
 
+	ApplyMeshVariant();
+
 	bLaneInitialized = InitializeLane();
 
 	if (!bLaneInitialized)
@@ -55,6 +57,45 @@ void ATrafficLaneFollower::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	}
 
 	Super::EndPlay(EndPlayReason);
+}
+
+void ATrafficLaneFollower::ApplyMeshVariant()
+{
+	if (!IsValid(VehicleMesh) || MeshVariants.Num() == 0)
+	{
+		return;
+	}
+
+	UStaticMesh* ChosenMesh =
+		MeshVariants[FMath::RandRange(0, MeshVariants.Num() - 1)];
+
+	if (!ChosenMesh)
+	{
+		return;
+	}
+
+	VehicleMesh->SetStaticMesh(ChosenMesh);
+	VehicleMesh->SetRelativeRotation(MeshRotationOffset);
+
+	float FinalScale = MeshScale;
+
+	if (bScaleMeshToVehicleLength)
+	{
+		// Longest horizontal axis is taken as the vehicle's length, whichever
+		// way round the asset was authored.
+		const FVector MeshSize =
+			ChosenMesh->GetBounds().BoxExtent * 2.0f;
+
+		const float LongestAxisCm =
+			FMath::Max(MeshSize.X, MeshSize.Y);
+
+		if (LongestAxisCm > KINDA_SMALL_NUMBER)
+		{
+			FinalScale *= VehicleLengthCm / LongestAxisCm;
+		}
+	}
+
+	VehicleMesh->SetRelativeScale3D(FVector(FinalScale));
 }
 
 void ATrafficLaneFollower::ConfigureStart(
@@ -586,6 +627,10 @@ void ATrafficLaneFollower::UpdateTransform()
 		HeightOffsetCm;
 
 	LaneTransform.AddToTranslation(HeightOffset);
+
+	// Keeps whatever scale the vehicle was set up with instead of forcing
+	// one, so a car assembled from several meshes scales as a single unit.
+	LaneTransform.SetScale3D(GetActorScale3D());
 
 	SetActorTransform(
 		LaneTransform,
