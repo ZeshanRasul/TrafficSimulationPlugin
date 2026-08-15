@@ -3,9 +3,11 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
 #include "RoadNetwork/TrafficLaneTypes.h"
+#include "RoadNetwork/TrafficLaneProvider.h"
 #include "TrafficRoadNetwork.generated.h"
 
 class ATrafficRoad;
+class ATrafficJunction;
 
 USTRUCT(BlueprintType)
 struct TRAFFICSIMULATION_API FTrafficNetworkValidationReport
@@ -67,13 +69,37 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Traffic Network")
     void RebuildNetwork();
 
+    // Retained for compatibility: returns the first successor only. Prefer
+    // GetLaneSuccessors or ChooseNextLane, which understand junction fan-out.
     UFUNCTION(BlueprintPure, Category = "Traffic Network")
     bool FindNextLane(
         FTrafficLaneHandle CurrentLane,
         FTrafficLaneHandle& OutNextLane) const;
 
+    UFUNCTION(BlueprintPure, Category = "Traffic Network")
+    bool GetLaneSuccessors(
+        FTrafficLaneHandle CurrentLane,
+        TArray<FTrafficLaneSuccessor>& OutSuccessors) const;
+
+    UFUNCTION(BlueprintCallable, Category = "Traffic Network")
+    bool ChooseNextLane(
+        FTrafficLaneHandle CurrentLane,
+        FTrafficLaneSuccessor& OutChoice) const;
+
     ATrafficRoad* FindRoad(const FGuid& RoadId) const;
-    
+
+    ATrafficJunction* FindJunction(const FGuid& JunctionId) const;
+
+    // Resolves a lane handle's owner, whether it is a road or a junction.
+    TScriptInterface<ITrafficLaneProvider> FindLaneProvider(
+        const FGuid& ProviderId) const;
+
+    UFUNCTION(BlueprintCallable, Category = "Traffic Network|Junctions")
+    void AddJunction(ATrafficJunction* Junction);
+
+    UFUNCTION(BlueprintPure, Category = "Traffic Network|Junctions")
+    int32 GetJunctionCount() const;
+
     UFUNCTION(
         BlueprintCallable,
         CallInEditor,
@@ -91,6 +117,11 @@ public:
 
     UFUNCTION(BlueprintCallable, Category = "Traffic Network|Roads")
     void AddRoad(ATrafficRoad* Road);
+
+    // Whether BuildSimpleConnections also wires Roads.Last() to Roads[0],
+    // turning a chain into a ring.
+    UFUNCTION(BlueprintCallable, Category = "Traffic Network|Connections")
+    void SetConnectLastRoadToFirst(bool bNewValue);
 
     UFUNCTION(BlueprintPure, Category = "Traffic Network|Connections")
     int32 GetConnectionCount() const;
@@ -141,7 +172,10 @@ private:
         Category = "Traffic Network|Connections")
     bool bConnectLastRoadToFirst = false;
 
-    TMap<
-        FTrafficLaneHandle,
-        FTrafficLaneHandle> NextLaneByLane;
+    UPROPERTY(
+        EditInstanceOnly,
+        Category = "Traffic Network|Junctions")
+    TArray<TObjectPtr<ATrafficJunction>> Junctions;
+
+    TMap<FTrafficLaneHandle, FTrafficLaneSuccessorSet> SuccessorsByLane;
 };

@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
 #include "RoadNetwork/TrafficLaneTypes.h"
+#include "RoadNetwork/TrafficLaneProvider.h"
 #include "TrafficRoad.generated.h"
 
 class USplineComponent;
@@ -13,45 +14,64 @@ class USplineMeshComponent;
 class UStaticMesh;
 
 UCLASS()
-class TRAFFICSIMULATION_API ATrafficRoad : public AActor
+class TRAFFICSIMULATION_API ATrafficRoad
+	: public AActor
+	, public ITrafficLaneProvider
 {
 	GENERATED_BODY()
-	
-public:	
+
+public:
 	// Sets default values for this actor's properties
 	ATrafficRoad();
 
 	virtual void Tick(float DeltaSeconds) override;
 	virtual void OnConstruction(const FTransform& Transform) override;
     virtual bool ShouldTickIfViewportsOnly() const override;
-    const FGuid& GetRoadId() const;
+    virtual const FGuid& GetRoadId() const override;
 
     UFUNCTION(BlueprintPure, Category = "Traffic Road")
-    FTrafficLaneHandle GetLaneHandle(int32 LaneIndex) const;
+    virtual FTrafficLaneHandle GetLaneHandle(int32 LaneIndex) const override;
 
     virtual void PostActorCreated() override;
     virtual void PostLoad() override;
     virtual void PostDuplicate(bool bDuplicateForPIE) override;
 
     UFUNCTION(BlueprintPure, Category = "Traffic Road|Lanes")
-    bool EvaluateLaneAtDistance(
+    virtual bool EvaluateLaneAtDistance(
         FTrafficLaneHandle LaneHandle,
         float DistanceAlongLaneCm,
-        FTransform& OutTransform) const;
+        FTransform& OutTransform) const override;
 
     UFUNCTION(BlueprintPure, Category = "Traffic Road|Lanes")
-    bool GetLaneLength(
+    virtual bool GetLaneLength(
         FTrafficLaneHandle LaneHandle,
-        float& OutLengthCm) const;
+        float& OutLengthCm) const override;
 
     UFUNCTION(BlueprintPure, Category = "Traffic Road|Lanes")
-    int32 GetLaneCount() const;
+    virtual int32 GetLaneCount() const override;
 
     UFUNCTION(BlueprintPure, Category = "Traffic Road|Shape")
-    bool IsRoadClosedLoop() const;
+    virtual bool IsRoadClosedLoop() const override;
 
     UFUNCTION(BlueprintCallable, Category = "Traffic Road|Shape")
     void SetRoadClosedLoop(bool bNewClosedLoop);
+
+    // Lets a procedural builder assign visuals without reaching past the
+    // class's encapsulated properties.
+    UFUNCTION(BlueprintCallable, Category = "Traffic Road|Rendering")
+    void SetRoadSurface(
+        UStaticMesh* NewSurfaceMesh,
+        UMaterialInterface* NewSurfaceMaterial);
+
+    UFUNCTION(BlueprintCallable, Category = "Traffic Road|Shape")
+    void SetLaneCount(int32 NewLaneCount);
+
+    // Replaces the spline's points wholesale and regenerates lanes and the
+    // road surface from the new shape. Intended for procedural road layout.
+    UFUNCTION(BlueprintCallable, Category = "Traffic Road|Shape")
+    void SetSplinePoints(
+        const TArray<FVector>& WorldPoints,
+        bool bNewClosedLoop);
 
     UFUNCTION(BlueprintPure, Category = "Traffic Road|Endpoints")
     FTrafficRoadEndpointHandle GetRoadEndpointHandle(

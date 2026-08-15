@@ -3,7 +3,6 @@
 #include "CoreMinimal.h"
 
 #include "TrafficLaneTypes.generated.h"
-
 UENUM(BlueprintType)
 enum class ETrafficLaneDirection : uint8
 {
@@ -248,3 +247,69 @@ struct TRAFFICSIMULATION_API FTrafficLaneConnection
             Source.Lane != Target.Lane;
     }
 };
+
+UENUM(BlueprintType)
+enum class ETrafficTurnType : uint8
+{
+    Straight UMETA(DisplayName = "Straight"),
+    Left UMETA(DisplayName = "Left"),
+    Right UMETA(DisplayName = "Right"),
+    UTurn UMETA(DisplayName = "U-Turn")
+};
+
+// A single outgoing option from a lane. A lane inside a junction fans out to
+// several of these, which is why the network cannot store one successor only.
+USTRUCT(BlueprintType)
+struct TRAFFICSIMULATION_API FTrafficLaneSuccessor
+{
+    GENERATED_BODY()
+
+    UPROPERTY(
+        VisibleAnywhere,
+        BlueprintReadOnly,
+        Category = "Traffic Lane Successor")
+    FTrafficLaneHandle Lane;
+
+    UPROPERTY(
+        VisibleAnywhere,
+        BlueprintReadOnly,
+        Category = "Traffic Lane Successor")
+    ETrafficTurnType TurnType = ETrafficTurnType::Straight;
+
+    // Set only when Lane is a connector lane owned by a junction. Vehicles use
+    // these two fields to request entry before they enter the junction box.
+    UPROPERTY(
+        VisibleAnywhere,
+        BlueprintReadOnly,
+        Category = "Traffic Lane Successor")
+    FGuid JunctionId;
+
+    UPROPERTY(
+        VisibleAnywhere,
+        BlueprintReadOnly,
+        Category = "Traffic Lane Successor")
+    int32 ConnectorIndex = INDEX_NONE;
+
+    bool IsValid() const
+    {
+        return Lane.IsValid();
+    }
+
+    bool EntersJunction() const
+    {
+        return JunctionId.IsValid() && ConnectorIndex >= 0;
+    }
+};
+
+USTRUCT(BlueprintType)
+struct TRAFFICSIMULATION_API FTrafficLaneSuccessorSet
+{
+    GENERATED_BODY()
+
+    UPROPERTY(
+        VisibleAnywhere,
+        BlueprintReadOnly,
+        Category = "Traffic Lane Successor")
+    TArray<FTrafficLaneSuccessor> Successors;
+};
+

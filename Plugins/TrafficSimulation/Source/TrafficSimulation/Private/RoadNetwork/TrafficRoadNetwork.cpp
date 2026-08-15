@@ -1,6 +1,7 @@
 #include "RoadNetwork/TrafficRoadNetwork.h"
 
 #include "DrawDebugHelpers.h"
+#include "Junctions/TrafficJunction.h"
 #include "TrafficRoad.h"
 
 namespace
@@ -68,15 +69,14 @@ bool ATrafficRoadNetwork::FindNextLane(
 {
     OutNextLane = FTrafficLaneHandle();
 
-    const FTrafficLaneHandle* FoundLane =
-        NextLaneByLane.Find(CurrentLane);
+    FTrafficLaneSuccessor Choice;
 
-    if (!FoundLane)
+    if (!ChooseNextLane(CurrentLane, Choice))
     {
         return false;
     }
 
-    OutNextLane = *FoundLane;
+    OutNextLane = Choice.Lane;
     return true;
 }
 
@@ -195,9 +195,11 @@ void ATrafficRoadNetwork::BuildSimpleConnections()
 
 void ATrafficRoadNetwork::RebuildNetwork()
 {
-    NextLaneByLane.Reset();
+    SuccessorsByLane.Reset();
 
-    TSet<FTrafficLaneHandle> UsedTargetLanes;
+    // Guards against the same directed pair being authored twice. Multiple
+    // distinct successors per lane are expected now that junctions fan out.
+    TSet<TPair<FTrafficLaneHandle, FTrafficLaneHandle>> SeenPairs;
 
     for (const FTrafficLaneConnection& Connection :
         Connections)
@@ -262,42 +264,114 @@ void ATrafficRoadNetwork::RebuildNetwork()
             continue;
         }
 
-        if (NextLaneByLane.Contains(SourceLane))
+        const TPair<FTrafficLaneHandle, FTrafficLaneHandle> Pair(
+            SourceLane,
+            TargetLane);
+
+        if (SeenPairs.Contains(Pair))
         {
             UE_LOG(
                 LogTemp,
                 Warning,
                 TEXT(
-                    "%s contains multiple outgoing "
-                    "connections for road %s lane %d."),
+                    "%s contains a duplicate connection from road %s "
+                    "lane %d to road %s lane %d."),
                 *GetName(),
                 *SourceLane.RoadId.ToString(),
-                SourceLane.LaneIndex);
-
-            continue;
-        }
-
-        if (UsedTargetLanes.Contains(TargetLane))
-        {
-            UE_LOG(
-                LogTemp,
-                Warning,
-                TEXT(
-                    "%s contains multiple connections "
-                    "targeting road %s lane %d."),
-                *GetName(),
+                SourceLane.LaneIndex,
                 *TargetLane.RoadId.ToString(),
                 TargetLane.LaneIndex);
 
             continue;
         }
 
-        NextLaneByLane.Add(
-            SourceLane,
-            TargetLane);
+        SeenPairs.Add(Pair);
 
-        UsedTargetLanes.Add(TargetLane);
+        FTrafficLaneSuccessor Successor;
+        Successor.Lane = TargetLane;
+        Successor.TurnType = ETrafficTurnType::Straight;
+
+        SuccessorsByLane.FindOrAdd(SourceLane).Successors.Add(Successor);
     }
+
+    // Junctions contribute the approach -> connector -> departure links that
+    // give a lane more than one successor.
+    TArray<TPair<FTrafficLaneHandle, FTrafficLaneSuccessor>> JunctionLinks;
+
+    for (ATrafficJunction* Junction : Junctions)
+    {
+        if (!IsValid(Junction))
+        {
+            continue;
+        }
+
+        Junction->GetSuccessorLinks(JunctionLinks);
+
+        for (const TPair<FTrafficLaneHandle, FTrafficLaneSuccessor>& Link :
+            JunctionLinks)
+        {
+            if (!Link.Key.IsValid() || !Link.Value.IsValid())
+            {
+                continue;
+            }
+
+            const TPair<FTrafficLaneHandle, FTrafficLaneHandle> Pair(
+                Link.Key,
+                Link.Value.Lane);
+
+            if (SeenPairs.Contains(Pair))
+            {
+                continue;
+            }
+
+            SeenPairs.Add(Pair);
+
+            SuccessorsByLane.FindOrAdd(Link.Key).Successors.Add(Link.Value);
+        }
+    }
+}
+
+bool ATrafficRoadNetwork::GetLaneSuccessors(
+    FTrafficLaneHandle CurrentLane,
+    TArray<FTrafficLaneSuccessor>& OutSuccessors) const
+{
+    OutSuccessors.Reset();
+
+    if (!CurrentLane.IsValid())
+    {
+        return false;
+    }
+
+    const FTrafficLaneSuccessorSet* Found =
+        SuccessorsByLane.Find(CurrentLane);
+
+    if (!Found || Found->Successors.Num() == 0)
+    {
+        return false;
+    }
+
+    OutSuccessors = Found->Successors;
+    return true;
+}
+
+bool ATrafficRoadNetwork::ChooseNextLane(
+    FTrafficLaneHandle CurrentLane,
+    FTrafficLaneSuccessor& OutChoice) const
+{
+    OutChoice = FTrafficLaneSuccessor();
+
+    TArray<FTrafficLaneSuccessor> Successors;
+
+    if (!GetLaneSuccessors(CurrentLane, Successors))
+    {
+        return false;
+    }
+
+    const int32 ChosenIndex =
+        FMath::RandRange(0, Successors.Num() - 1);
+
+    OutChoice = Successors[ChosenIndex];
+    return true;
 }
 
 void ATrafficRoadNetwork::BuildConnectionsBetweenRoads(
@@ -421,6 +495,62 @@ void ATrafficRoadNetwork::BuildConnectionsBetweenRoads(
     }
 }
 
+ATrafficJunction* ATrafficRoadNetwork::FindJunction(
+    const FGuid& JunctionId) const
+{
+    for (ATrafficJunction* Junction : Junctions)
+    {
+        if (IsValid(Junction) &&
+            Junction->GetRoadId() == JunctionId)
+        {
+            return Junction;
+        }
+    }
+
+    return nullptr;
+}
+
+TScriptInterface<ITrafficLaneProvider>
+ATrafficRoadNetwork::FindLaneProvider(const FGuid& ProviderId) const
+{
+    TScriptInterface<ITrafficLaneProvider> Provider;
+
+    if (ATrafficRoad* Road = FindRoad(ProviderId))
+    {
+        Provider.SetObject(Road);
+        Provider.SetInterface(Cast<ITrafficLaneProvider>(Road));
+
+        return Provider;
+    }
+
+    if (ATrafficJunction* Junction = FindJunction(ProviderId))
+    {
+        Provider.SetObject(Junction);
+        Provider.SetInterface(Cast<ITrafficLaneProvider>(Junction));
+    }
+
+    return Provider;
+}
+
+void ATrafficRoadNetwork::AddJunction(ATrafficJunction* Junction)
+{
+    if (!IsValid(Junction) ||
+        Junctions.Contains(Junction))
+    {
+        return;
+    }
+
+    Modify();
+    Junctions.Add(Junction);
+
+    RebuildNetwork();
+}
+
+int32 ATrafficRoadNetwork::GetJunctionCount() const
+{
+    return Junctions.Num();
+}
+
 void ATrafficRoadNetwork::AddRoad(
     ATrafficRoad* Road)
 {
@@ -456,6 +586,11 @@ void ATrafficRoadNetwork::ClearConnections()
 int32 ATrafficRoadNetwork::GetConnectionCount() const
 {
     return Connections.Num();
+}
+
+void ATrafficRoadNetwork::SetConnectLastRoadToFirst(bool bNewValue)
+{
+    bConnectLastRoadToFirst = bNewValue;
 }
 
 void ATrafficRoadNetwork::ValidateNetwork()
@@ -506,8 +641,7 @@ void ATrafficRoadNetwork::ValidateNetwork()
         RegisteredRoadIds.Add(RoadId);
     }
 
-    TSet<FTrafficLaneHandle> UsedSourceLanes;
-    TSet<FTrafficLaneHandle> UsedTargetLanes;
+    TSet<TPair<FTrafficLaneHandle, FTrafficLaneHandle>> SeenConnectionPairs;
 
     for (int32 ConnectionIndex = 0;
         ConnectionIndex < Connections.Num();
@@ -599,25 +733,19 @@ void ATrafficRoadNetwork::ValidateNetwork()
             continue;
         }
 
-        if (UsedSourceLanes.Contains(SourceLane))
+        // A lane may now have several successors (junction fan-out) and several
+        // predecessors (junction merges); only an exact repeat is an error.
+        const TPair<FTrafficLaneHandle, FTrafficLaneHandle> ConnectionPair(
+            SourceLane,
+            TargetLane);
+
+        if (SeenConnectionPairs.Contains(ConnectionPair))
         {
             LastValidationReport.AddError(
                 FString::Printf(
                     TEXT(
-                        "Connection[%d] duplicates an "
-                        "outgoing source lane."),
-                    ConnectionIndex));
-
-            continue;
-        }
-
-        if (UsedTargetLanes.Contains(TargetLane))
-        {
-            LastValidationReport.AddError(
-                FString::Printf(
-                    TEXT(
-                        "Connection[%d] duplicates an "
-                        "incoming target lane."),
+                        "Connection[%d] duplicates an existing "
+                        "source-to-target pair."),
                     ConnectionIndex));
 
             continue;
@@ -685,8 +813,7 @@ void ATrafficRoadNetwork::ValidateNetwork()
                     AlignmentDot));
         }
 
-        UsedSourceLanes.Add(SourceLane);
-        UsedTargetLanes.Add(TargetLane);
+        SeenConnectionPairs.Add(ConnectionPair);
     }
 
     if (Roads.IsEmpty())

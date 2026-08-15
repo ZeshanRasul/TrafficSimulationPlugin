@@ -554,6 +554,59 @@ void ATrafficRoad::SetRoadClosedLoop(bool bNewClosedLoop)
 	RebuildRoadSurface();
 }
 
+void ATrafficRoad::SetRoadSurface(
+	UStaticMesh* NewSurfaceMesh,
+	UMaterialInterface* NewSurfaceMaterial)
+{
+	RoadSurfaceMesh = NewSurfaceMesh;
+	RoadSurfaceMaterial = NewSurfaceMaterial;
+
+	RebuildRoadSurface();
+}
+
+void ATrafficRoad::SetLaneCount(int32 NewLaneCount)
+{
+	LaneCount = FMath::Max(1, NewLaneCount);
+
+	RebuildGeneratedLanes();
+	RebuildRoadSurface();
+}
+
+void ATrafficRoad::SetSplinePoints(
+	const TArray<FVector>& WorldPoints,
+	bool bNewClosedLoop)
+{
+	if (!RoadSpline || WorldPoints.Num() < 2)
+	{
+		return;
+	}
+
+	RoadSpline->ClearSplinePoints(false);
+
+	for (const FVector& Point : WorldPoints)
+	{
+		RoadSpline->AddSplinePoint(
+			Point,
+			ESplineCoordinateSpace::World,
+			false);
+	}
+
+	// Curve tangents read as a road; linear points read as a bent stick.
+	for (int32 PointIndex = 0;
+		PointIndex < RoadSpline->GetNumberOfSplinePoints();
+		++PointIndex)
+	{
+		RoadSpline->SetSplinePointType(
+			PointIndex,
+			ESplinePointType::Curve,
+			false);
+	}
+
+	RoadSpline->UpdateSpline();
+
+	SetRoadClosedLoop(bNewClosedLoop);
+}
+
 FTrafficRoadEndpointHandle ATrafficRoad::GetRoadEndpointHandle(
 	ETrafficRoadEndpoint Endpoint) const
 {
