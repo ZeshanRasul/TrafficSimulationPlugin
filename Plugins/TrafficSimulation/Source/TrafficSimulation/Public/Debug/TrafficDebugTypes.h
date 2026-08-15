@@ -24,6 +24,17 @@ enum class ETrafficVehicleConstraint : uint8
     LaneEnd UMETA(DisplayName = "Lane End")
 };
 
+// Which vehicles get per-vehicle debug detail drawn for them. A busy network
+// is unreadable with everything on at once, so the usual working mode is to
+// select one vehicle and watch only that.
+UENUM(BlueprintType)
+enum class ETrafficDebugVerbosity : uint8
+{
+    None UMETA(DisplayName = "None"),
+    SelectedOnly UMETA(DisplayName = "Selected Only"),
+    All UMETA(DisplayName = "All")
+};
+
 // How fast the vehicle is actually moving relative to what it wants, which is
 // what the free-flow / constrained / stopped colouring keys off.
 UENUM(BlueprintType)

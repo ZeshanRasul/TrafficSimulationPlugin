@@ -35,9 +35,16 @@ private:
         const ATrafficLaneFollower* Vehicle,
         const FVector& ViewLocation) const;
 
+    // True when this vehicle should get labels and leader lines drawn.
+    bool ShouldDrawDetailFor(const ATrafficLaneFollower* Vehicle) const;
+
     void DrawJunctions() const;
 
-    void DrawSummary(const FVector& ViewLocation) const;
+    void DrawSummary() const;
+
+    // Pushes bShowNetworkGeometry out to the roads and junctions, which each
+    // own their own debug drawing flags.
+    void ApplyNetworkGeometryVisibility() const;
 
     // Where the viewer is, used to cull distant labels. Falls back to the
     // actor's own location when no camera can be resolved.
@@ -56,18 +63,32 @@ private:
     UPROPERTY(EditAnywhere, Category = "Traffic Debug|Toggles")
     bool bEnabled = true;
 
+    // Governs which vehicles get labels and leader lines. Selected Only reads
+    // the editor's actor selection, so it works in the viewport and in play
+    // via the World Outliner, but shows nothing in a packaged build.
+    UPROPERTY(EditAnywhere, Category = "Traffic Debug|Toggles")
+    ETrafficDebugVerbosity VehicleDetail =
+        ETrafficDebugVerbosity::SelectedOnly;
+
+    // State-tinted boxes are cheap and readable at a glance, so they follow
+    // their own toggle and are drawn for every vehicle regardless of the
+    // detail level above.
+    UPROPERTY(EditAnywhere, Category = "Traffic Debug|Toggles")
+    bool bShowVehicleStateBoxes = true;
+
     // Per-vehicle text. Requires a HUD, so this only renders during play.
     UPROPERTY(EditAnywhere, Category = "Traffic Debug|Toggles")
     bool bShowVehicleLabels = true;
 
-    // A box around each vehicle tinted by motion state. Works in the editor
-    // viewport as well as in play.
-    UPROPERTY(EditAnywhere, Category = "Traffic Debug|Toggles")
-    bool bShowVehicleStateBoxes = true;
-
     // A line from each vehicle to the one it is following.
     UPROPERTY(EditAnywhere, Category = "Traffic Debug|Toggles")
     bool bShowLeaderLines = true;
+
+    // Master switch for the lane and connector lines the roads and junctions
+    // draw themselves. These are the bulk of the clutter in a built-up scene,
+    // so the overlay drives them from one place.
+    UPROPERTY(EditAnywhere, Category = "Traffic Debug|Toggles")
+    bool bShowNetworkGeometry = false;
 
     UPROPERTY(EditAnywhere, Category = "Traffic Debug|Toggles")
     bool bShowSignalState = true;
@@ -94,4 +115,8 @@ private:
         Category = "Traffic Debug|Display",
         meta = (ClampMin = "0.1", UIMin = "0.1"))
     float LabelFontScale = 1.0f;
+
+    // Stable key so each frame's summary replaces the previous one instead of
+    // stacking. Arbitrary, just needs to not collide with other systems.
+    static constexpr uint64 SummaryMessageKey = 0x7A11C000;
 };

@@ -80,6 +80,17 @@ private:
         meta = (ClampMin = "100.0", UIMin = "100.0", Units = "cm"))
     float JunctionRadiusCm = 1200.0f;
 
+    // How far short of the centre each approach road stops. Without this the
+    // spurs meet at a single point, the junction has no physical extent, and
+    // waiting vehicles sit on top of the connectors crossing traffic uses.
+    // Must stay comfortably below JunctionRadiusCm so the junction still
+    // finds these endpoints.
+    UPROPERTY(
+        EditAnywhere,
+        Category = "Traffic Demo|Layout",
+        meta = (ClampMin = "0.0", UIMin = "0.0", Units = "cm"))
+    float JunctionApproachInsetCm = 800.0f;
+
     // Ring corners meet spurs at an angle, so same-centreline lane offsets
     // land further apart there than on a straight join. Generous by default.
     UPROPERTY(

@@ -8,6 +8,7 @@
 #include "GameFramework/PlayerController.h"
 #include "Junctions/TrafficJunction.h"
 #include "RoadNetwork/TrafficRoadNetwork.h"
+#include "TrafficRoad.h"
 #include "Vehicles/TrafficLaneFollower.h"
 
 namespace
@@ -161,6 +162,8 @@ void ATrafficDebugOverlay::Tick(float DeltaSeconds)
     // flushed before this frame's are queued.
     FlushDebugStrings(GetWorld());
 
+    ApplyNetworkGeometryVisibility();
+
     FVector ViewLocation;
     TryGetViewLocation(ViewLocation);
 
@@ -182,7 +185,49 @@ void ATrafficDebugOverlay::Tick(float DeltaSeconds)
 
     if (bShowSummary)
     {
-        DrawSummary(ViewLocation);
+        DrawSummary();
+    }
+}
+
+void ATrafficDebugOverlay::ApplyNetworkGeometryVisibility() const
+{
+    for (TActorIterator<ATrafficRoad> It(GetWorld()); It; ++It)
+    {
+        if (ATrafficRoad* Road = *It)
+        {
+            Road->SetDebugDrawEnabled(bShowNetworkGeometry);
+        }
+    }
+
+    for (TActorIterator<ATrafficJunction> It(GetWorld()); It; ++It)
+    {
+        ATrafficJunction* Junction = *It;
+
+        if (IsValid(Junction) && Junction->RoadNetwork == RoadNetwork)
+        {
+            Junction->SetDebugDrawEnabled(bShowNetworkGeometry);
+        }
+    }
+}
+
+bool ATrafficDebugOverlay::ShouldDrawDetailFor(
+    const ATrafficLaneFollower* Vehicle) const
+{
+    switch (VehicleDetail)
+    {
+    case ETrafficDebugVerbosity::All:
+        return true;
+
+    case ETrafficDebugVerbosity::SelectedOnly:
+#if WITH_EDITOR
+        return IsValid(Vehicle) && Vehicle->IsSelected();
+#else
+        return false;
+#endif
+
+    case ETrafficDebugVerbosity::None:
+    default:
+        return false;
     }
 }
 
@@ -209,6 +254,13 @@ void ATrafficDebugOverlay::DrawVehicle(
             0.0f,
             0,
             4.0f);
+    }
+
+    // Everything past this point is per-vehicle detail, which is what makes a
+    // busy network unreadable, so it is gated on the verbosity setting.
+    if (!ShouldDrawDetailFor(Vehicle))
+    {
+        return;
     }
 
     if (bShowLeaderLines)
@@ -368,8 +420,13 @@ void ATrafficDebugOverlay::DrawJunctions() const
     }
 }
 
-void ATrafficDebugOverlay::DrawSummary(const FVector& ViewLocation) const
+void ATrafficDebugOverlay::DrawSummary() const
 {
+    if (!GEngine)
+    {
+        return;
+    }
+
     const FTrafficNetworkStats Stats = RoadNetwork->GetNetworkStats();
 
     TStringBuilder<512> Summary;
@@ -394,15 +451,14 @@ void ATrafficDebugOverlay::DrawSummary(const FVector& ViewLocation) const
         Stats.MeanSpeedCmPerSecond,
         Stats.MeanSpeedFraction * 100.0f);
 
-    // Anchored to the overlay actor so it stays put in the world rather than
-    // tracking the camera.
-    DrawDebugString(
-        GetWorld(),
-        GetActorLocation() + FVector::UpVector * 400.0f,
-        Summary.ToString(),
-        nullptr,
-        FColor::White,
+    // Drawn in screen space rather than in the world, so it can never sit on
+    // top of the intersection being watched. The fixed key means each frame
+    // replaces the last rather than stacking up.
+    GEngine->AddOnScreenDebugMessage(
+        SummaryMessageKey,
         0.0f,
-        true,
-        LabelFontScale * 1.2f);
+        FColor::White,
+        Summary.ToString(),
+        false,
+        FVector2D(LabelFontScale, LabelFontScale));
 }

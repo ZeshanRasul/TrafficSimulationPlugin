@@ -852,6 +852,16 @@ void ATrafficJunction::SetJunctionRadiusCm(float NewRadiusCm)
     JunctionRadiusCm = FMath::Max(50.0f, NewRadiusCm);
 }
 
+void ATrafficJunction::SetDebugDrawEnabled(bool bNewEnabled)
+{
+    bDrawDebugConnectors = bNewEnabled;
+
+    if (!bNewEnabled)
+    {
+        bDrawDebugConflicts = false;
+    }
+}
+
 void ATrafficJunction::ConfigureSignals(
     bool bEnable,
     const TArray<FTrafficSignalPhase>& NewPhases)

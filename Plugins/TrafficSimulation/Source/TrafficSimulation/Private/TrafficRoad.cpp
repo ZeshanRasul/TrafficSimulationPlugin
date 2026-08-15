@@ -572,6 +572,12 @@ void ATrafficRoad::SetLaneCount(int32 NewLaneCount)
 	RebuildRoadSurface();
 }
 
+void ATrafficRoad::SetDebugDrawEnabled(bool bNewEnabled)
+{
+	bDrawDebugLanes = bNewEnabled;
+	bDrawLaneDirections = bNewEnabled;
+}
+
 void ATrafficRoad::SetSplinePoints(
 	const TArray<FVector>& WorldPoints,
 	bool bNewClosedLoop)

@@ -67,6 +67,15 @@ public:
         return VehicleLengthCm;
     }
 
+    // Read by followers to size their own safe speed. May be this frame's or
+    // last frame's value depending on actor tick order; that lag is harmless
+    // and reads as ordinary driver reaction time.
+    UFUNCTION(BlueprintPure, Category = "Traffic Vehicle")
+    float GetCurrentSpeedCmPerSecond() const
+    {
+        return CurrentSpeedCmPerSecond;
+    }
+
     // Refreshed every tick. Safe to read from the overlay or to inspect on the
     // actor while the simulation is paused.
     const FTrafficVehicleDebugState& GetDebugState() const
@@ -86,6 +95,14 @@ private:
     // True while the vehicle is approaching a junction it has not been
     // cleared to enter.
     bool IsYieldingToJunction() const;
+
+    // How far back from the end of the lane the vehicle holds when yielding,
+    // measured to its centre. The buffer applies to the front of the vehicle,
+    // so half its length is included. Both the hold position and the point at
+    // which entry is first requested derive from this; if they disagree the
+    // vehicle can stop short of the range in which it asks to proceed and
+    // wait there indefinitely.
+    float GetStopLineSetbackCm() const;
 
     void UpdateSpeed(float DeltaSeconds);
     void AdvanceAlongLane(float DeltaSeconds);
@@ -161,20 +178,23 @@ private:
         meta = (ClampMin = "10.0", UIMin = "10.0", Units = "cm"))
     float VehicleLengthCm = 450.0f;
 
-    // Below this gap to the vehicle ahead, this vehicle comes to a full stop.
+    // Standstill gap: how much clear space is kept to the vehicle ahead when
+    // both are stopped in a queue.
     UPROPERTY(
         EditAnywhere,
         Category = "Traffic Vehicle|Following",
         meta = (ClampMin = "0.0", UIMin = "0.0", Units = "cm"))
     float MinFollowingGapCm = 200.0f;
 
-    // Above this gap, following has no effect on speed; between the two, speed
-    // is scaled down linearly.
+    // Gap the vehicle aims to keep expressed as travel time rather than a
+    // fixed distance, so spacing opens up at speed and closes in a queue.
+    // This is what gives a queue its natural look; the safe-speed limit below
+    // is the hard guarantee underneath it.
     UPROPERTY(
         EditAnywhere,
         Category = "Traffic Vehicle|Following",
-        meta = (ClampMin = "10.0", UIMin = "10.0", Units = "cm"))
-    float DesiredFollowingGapCm = 800.0f;
+        meta = (ClampMin = "0.1", UIMin = "0.1", Units = "s"))
+    float DesiredTimeHeadwaySeconds = 1.4f;
 
     UPROPERTY(
         EditAnywhere,

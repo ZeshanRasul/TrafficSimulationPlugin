@@ -183,6 +183,11 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Traffic Junction|Generation")
     void SetJunctionRadiusCm(float NewRadiusCm);
 
+    // Lets the debug overlay silence connector lines from one place. Signal
+    // indicator meshes are unaffected; they are scene dressing, not debug.
+    UFUNCTION(BlueprintCallable, Category = "Traffic Junction|Debug")
+    void SetDebugDrawEnabled(bool bNewEnabled);
+
     UFUNCTION(BlueprintCallable, Category = "Traffic Junction|Signals")
     void ConfigureSignals(
         bool bEnable,

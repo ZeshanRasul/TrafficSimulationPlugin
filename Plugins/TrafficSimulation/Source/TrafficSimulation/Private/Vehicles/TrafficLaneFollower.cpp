@@ -208,6 +208,11 @@ bool ATrafficLaneFollower::IsYieldingToJunction() const
 		!bEntryGranted;
 }
 
+float ATrafficLaneFollower::GetStopLineSetbackCm() const
+{
+	return StopLineBufferCm + VehicleLengthCm * 0.5f;
+}
+
 void ATrafficLaneFollower::UpdateSpeed(float DeltaSeconds)
 {
 	float TargetSpeedCmPerSecond = SpeedCmPerSecond;
@@ -221,12 +226,16 @@ void ATrafficLaneFollower::UpdateSpeed(float DeltaSeconds)
 			LaneLengthCm - DistanceAlongLaneCm;
 
 		// Ask for entry as late as possible while still leaving room to brake,
-		// so the junction is not reserved further ahead than necessary.
+		// so the junction is not reserved further ahead than necessary. The
+		// range must reach at least as far back as the stop line itself,
+		// otherwise a vehicle that has already halted there falls outside it
+		// and stops asking to proceed.
 		const float BrakingDistanceCm =
 			FMath::Square(CurrentSpeedCmPerSecond) /
 			(2.0f * FMath::Max(BrakingCmPerSecondSquared, 1.0f));
 
-		if (DistanceToLaneEndCm <= BrakingDistanceCm + StopLineBufferCm)
+		if (DistanceToLaneEndCm <=
+			BrakingDistanceCm + GetStopLineSetbackCm())
 		{
 			bEntryGranted = PendingJunction->RequestEntry(
 				this,
@@ -266,23 +275,40 @@ void ATrafficLaneFollower::UpdateSpeed(float DeltaSeconds)
 			DebugState.ForwardGapCm = ForwardGapCm;
 			DebugState.Leader = Leader;
 
-			float FollowingSpeedCmPerSecond = TargetSpeedCmPerSecond;
+			// Space available to use up before reaching the standstill gap.
+			const float UsableGapCm =
+				ForwardGapCm - MinFollowingGapCm;
 
-			if (ForwardGapCm <= MinFollowingGapCm)
-			{
-				FollowingSpeedCmPerSecond = 0.0f;
-			}
-			else if (ForwardGapCm < DesiredFollowingGapCm)
-			{
-				const float Alpha = FMath::Clamp(
-					(ForwardGapCm - MinFollowingGapCm) /
-					FMath::Max(
-						DesiredFollowingGapCm - MinFollowingGapCm,
-						1.0f),
-					0.0f,
-					1.0f);
+			float FollowingSpeedCmPerSecond = 0.0f;
 
-				FollowingSpeedCmPerSecond = SpeedCmPerSecond * Alpha;
+			if (UsableGapCm > 0.0f)
+			{
+				const float LeaderSpeedCmPerSecond =
+					IsValid(Leader)
+					? Leader->GetCurrentSpeedCmPerSecond()
+					: 0.0f;
+
+				// Fastest speed from which this vehicle could still pull up
+				// short of wherever the leader can stop. Because it accounts
+				// for the leader's own speed, a platoon running at a steady
+				// speed is not slowed merely for being close, while closing
+				// on a stopped queue brakes in good time.
+				const float SafeSpeedCmPerSecond = FMath::Sqrt(
+					FMath::Square(LeaderSpeedCmPerSecond) +
+					2.0f *
+					FMath::Max(BrakingCmPerSecondSquared, 1.0f) *
+					UsableGapCm);
+
+				// Comfort limit: hold a gap proportional to speed. This is
+				// normally the binding constraint, which keeps spacing even
+				// and stops the queue surging back and forth.
+				const float HeadwaySpeedCmPerSecond =
+					UsableGapCm /
+					FMath::Max(DesiredTimeHeadwaySeconds, 0.1f);
+
+				FollowingSpeedCmPerSecond = FMath::Min(
+					SafeSpeedCmPerSecond,
+					HeadwaySpeedCmPerSecond);
 			}
 
 			// Whichever constraint bites hardest is the one worth reporting.
@@ -428,8 +454,9 @@ void ATrafficLaneFollower::AdvanceAlongLane(
 	// Held short of a junction that has not cleared this vehicle yet.
 	if (IsYieldingToJunction())
 	{
-		const float StopDistanceCm =
-			FMath::Max(0.0f, LaneLengthCm - StopLineBufferCm);
+		const float StopDistanceCm = FMath::Max(
+			0.0f,
+			LaneLengthCm - GetStopLineSetbackCm());
 
 		if (DistanceAlongLaneCm >= StopDistanceCm)
 		{

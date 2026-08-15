@@ -235,9 +235,21 @@ void ATrafficDemoSceneBuilder::BuildDemoScene()
     TArray<ATrafficRoad*> Spurs;
     Spurs.SetNum(4);
 
+    // Held back from the centre so the junction is a box with real area
+    // rather than a single point every approach converges on.
+    const float SafeInsetCm = FMath::Clamp(
+        JunctionApproachInsetCm,
+        0.0f,
+        FMath::Max(JunctionRadiusCm - 100.0f, 0.0f));
+
     for (int32 Index = 0; Index < 4; ++Index)
     {
-        Spurs[Index] = SpawnRoad({ Center, RingPoints[Index] }, false);
+        const FVector SpurInnerPoint =
+            Center + Directions[Index] * SafeInsetCm;
+
+        Spurs[Index] = SpawnRoad(
+            { SpurInnerPoint, RingPoints[Index] },
+            false);
     }
 
     TArray<ATrafficRoad*> Links;

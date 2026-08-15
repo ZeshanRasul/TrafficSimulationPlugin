@@ -66,6 +66,10 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Traffic Road|Shape")
     void SetLaneCount(int32 NewLaneCount);
 
+    // Lets the debug overlay silence this road's lane lines from one place.
+    UFUNCTION(BlueprintCallable, Category = "Traffic Road|Debug")
+    void SetDebugDrawEnabled(bool bNewEnabled);
+
     // Replaces the spline's points wholesale and regenerates lanes and the
     // road surface from the new shape. Intended for procedural road layout.
     UFUNCTION(BlueprintCallable, Category = "Traffic Road|Shape")
