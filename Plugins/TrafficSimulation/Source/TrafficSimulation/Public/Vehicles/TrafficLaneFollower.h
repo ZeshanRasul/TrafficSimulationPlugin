@@ -274,7 +274,13 @@ private:
         EditAnywhere,
         Category = "Traffic Vehicle|Presentation",
         meta = (Units = "cm"))
-    float HeightOffsetCm = 60.0f;
+    float HeightOffsetCm = 0.0f;
+
+    // Sits the bottom of the body on the lane rather than its pivot. Imported
+    // meshes are commonly authored around their centre, which leaves them
+    // hovering by half their height.
+    UPROPERTY(EditAnywhere, Category = "Traffic Vehicle|Presentation")
+    bool bGroundMeshToLane = true;
 
     // One is picked per vehicle on spawn, so a populated network is not a
     // fleet of identical cars. Pre-filled from Content/Models/Vehicles by

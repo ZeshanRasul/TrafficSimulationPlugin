@@ -309,6 +309,18 @@ void ATrafficLaneFollower::ApplyMeshTransform()
 
 	VehicleMesh->SetRelativeScale3D(FVector(FinalScale));
 
+	if (bGroundMeshToLane)
+	{
+		// The lowest point of the mesh in its own space, which is only zero
+		// if the asset happens to be authored sitting on the origin.
+		const float LocalBottomZ =
+			CurrentMesh->GetBounds().Origin.Z -
+			CurrentMesh->GetBounds().BoxExtent.Z;
+
+		VehicleMesh->SetRelativeLocation(
+			FVector(0.0f, 0.0f, -LocalBottomZ * FinalScale));
+	}
+
 	// Taken from the mesh rather than imposed on it, so the gap the follower
 	// keeps behind a lorry reflects the lorry actually being longer. Confined
 	// to play, because this writes to an editable property and doing it on

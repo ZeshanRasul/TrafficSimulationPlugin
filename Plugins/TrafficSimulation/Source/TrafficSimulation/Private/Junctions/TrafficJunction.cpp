@@ -867,7 +867,10 @@ bool ATrafficJunction::RequestEntry(AActor* Vehicle, int32 ConnectorIndex)
                 return false;
             }
 
-            if (OtherVehicle->GetDistanceAlongLaneCm() < EntryHeadwayCm)
+            // Same reasoning as the conflict clearance: the headway has to
+            // clear the vehicle itself, not just its centre point.
+            if (OtherVehicle->GetDistanceAlongLaneCm() <
+                EntryHeadwayCm + OtherVehicle->GetVehicleLengthCm() * 0.5f)
             {
                 return false;
             }
@@ -901,6 +904,11 @@ bool ATrafficJunction::RequestEntry(AActor* Vehicle, int32 ConnectorIndex)
                 const ATrafficLaneFollower* OtherVehicle =
                     Cast<ATrafficLaneFollower>(Other.Vehicle.Get());
 
+                // Distance along the lane is measured to the vehicle's centre,
+                // so its tail is half a length further back. Without that
+                // term a long vehicle is released while its rear is still
+                // across the conflict point, and cross traffic drives into
+                // it.
                 if (OtherVehicle &&
                     Connectors[Other.ConnectorIndex].TryGetClearDistanceCm(
                         ConnectorIndex,
@@ -908,7 +916,9 @@ bool ATrafficJunction::RequestEntry(AActor* Vehicle, int32 ConnectorIndex)
                     OtherVehicle->GetCurrentLaneHandle() ==
                         Connectors[Other.ConnectorIndex].Lane.Handle &&
                     OtherVehicle->GetDistanceAlongLaneCm() >
-                        ClearDistanceCm + ConflictReleaseMarginCm)
+                        ClearDistanceCm +
+                        ConflictReleaseMarginCm +
+                        OtherVehicle->GetVehicleLengthCm() * 0.5f)
                 {
                     continue;
                 }
