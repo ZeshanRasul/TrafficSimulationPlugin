@@ -1,6 +1,7 @@
 #include "Vehicles/TrafficLaneFollower.h"
 #include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "Engine/StaticMesh.h"
 #include "Junctions/TrafficJunction.h"
 #include "Materials/MaterialInterface.h"
 #include "TrafficRoad.h"
@@ -23,6 +24,144 @@ ATrafficLaneFollower::ATrafficLaneFollower()
 	VehicleMesh->SetupAttachment(SceneRoot);
 	VehicleMesh->SetCollisionEnabled(
 		ECollisionEnabled::NoCollision);
+
+	// Wheels hang off the body rather than the root, so swapping or rescaling
+	// the body carries them with it instead of leaving them behind.
+	auto CreateWheel =
+		[this](const TCHAR* ComponentName) -> UStaticMeshComponent*
+		{
+			UStaticMeshComponent* Wheel =
+				CreateDefaultSubobject<UStaticMeshComponent>(ComponentName);
+
+			if (Wheel)
+			{
+				Wheel->SetupAttachment(VehicleMesh);
+				Wheel->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+			}
+
+			return Wheel;
+		};
+
+	WheelFrontLeft = CreateWheel(TEXT("WheelFrontLeft"));
+	WheelFrontRight = CreateWheel(TEXT("WheelFrontRight"));
+	WheelRearLeft = CreateWheel(TEXT("WheelRearLeft"));
+	WheelRearRight = CreateWheel(TEXT("WheelRearRight"));
+
+	// Modular kit parts are authored in place, so the pieces line up at the
+	// identity transform and only need assigning.
+	struct FPartDefault
+	{
+		UStaticMeshComponent* Component;
+		const TCHAR* AssetPath;
+	};
+
+	const FPartDefault PartDefaults[] =
+	{
+		{ VehicleMesh, TEXT("/Game/Models/body.body") },
+		{
+			WheelFrontLeft,
+			TEXT("/Game/Models/wheel-front-left.wheel-front-left")
+		},
+		{
+			WheelFrontRight,
+			TEXT("/Game/Models/wheel-front-right.wheel-front-right")
+		},
+		{
+			WheelRearLeft,
+			TEXT("/Game/Models/wheel-back-left.wheel-back-left")
+		},
+		{
+			WheelRearRight,
+			TEXT("/Game/Models/wheel-back-right.wheel-back-right")
+		}
+	};
+
+	for (const FPartDefault& Part : PartDefaults)
+	{
+		if (!Part.Component)
+		{
+			continue;
+		}
+
+		if (UStaticMesh* Mesh = Cast<UStaticMesh>(
+			StaticLoadObject(
+				UStaticMesh::StaticClass(),
+				nullptr,
+				Part.AssetPath)))
+		{
+			Part.Component->SetStaticMesh(Mesh);
+		}
+	}
+
+	// Weights are a rough town-traffic mix: mostly ordinary cars, a scattering
+	// of vans, and the occasional lorry or police car. Speed multipliers make
+	// the heavier types hold up the traffic behind them.
+	struct FVariantDefault
+	{
+		const TCHAR* Folder;
+		float Weight;
+		float SpeedMultiplier;
+	};
+
+	const FVariantDefault VariantDefaults[] =
+	{
+		{ TEXT("Sedan"), 30.0f, 1.00f },
+		{ TEXT("Hatchback"), 26.0f, 1.00f },
+		{ TEXT("SUV"), 16.0f, 0.97f },
+		{ TEXT("Taxi"), 9.0f, 1.02f },
+		{ TEXT("Delivery"), 8.0f, 0.88f },
+		{ TEXT("Truck"), 5.0f, 0.80f },
+		{ TEXT("Police"), 3.0f, 1.05f },
+		{ TEXT("GarbageTruck"), 3.0f, 0.72f }
+	};
+
+	auto LoadVehiclePart =
+		[](const TCHAR* Folder, const TCHAR* PartName) -> UStaticMesh*
+		{
+			const FString Path = FString::Printf(
+				TEXT("/Game/Models/Vehicles/%s/%s.%s"),
+				Folder,
+				PartName,
+				PartName);
+
+			return Cast<UStaticMesh>(
+				StaticLoadObject(
+					UStaticMesh::StaticClass(),
+					nullptr,
+					*Path));
+		};
+
+	for (const FVariantDefault& Default : VariantDefaults)
+	{
+		UStaticMesh* Body = LoadVehiclePart(Default.Folder, TEXT("body"));
+
+		// A folder that has not been populated yet simply contributes
+		// nothing, and starts appearing once its meshes are imported.
+		if (!Body)
+		{
+			continue;
+		}
+
+		FTrafficVehicleVariant& Variant =
+			VehicleVariants.AddDefaulted_GetRef();
+
+		Variant.Name = FName(Default.Folder);
+		Variant.BodyMesh = Body;
+		Variant.SelectionWeight = Default.Weight;
+		Variant.SpeedMultiplier = Default.SpeedMultiplier;
+
+		Variant.WheelFrontLeftMesh =
+			LoadVehiclePart(Default.Folder, TEXT("wheel-front-left"));
+
+		Variant.WheelFrontRightMesh =
+			LoadVehiclePart(Default.Folder, TEXT("wheel-front-right"));
+
+		Variant.WheelRearLeftMesh =
+			LoadVehiclePart(Default.Folder, TEXT("wheel-back-left"));
+
+		Variant.WheelRearRightMesh =
+			LoadVehiclePart(Default.Folder, TEXT("wheel-back-right"));
+	}
 }
 
 void ATrafficLaneFollower::BeginPlay()
@@ -30,6 +169,7 @@ void ATrafficLaneFollower::BeginPlay()
 	Super::BeginPlay();
 
 	ApplyMeshVariant();
+	ApplyMeshTransform();
 
 	bLaneInitialized = InitializeLane();
 
@@ -61,41 +201,139 @@ void ATrafficLaneFollower::EndPlay(const EEndPlayReason::Type EndPlayReason)
 
 void ATrafficLaneFollower::ApplyMeshVariant()
 {
-	if (!IsValid(VehicleMesh) || MeshVariants.Num() == 0)
+	if (!IsValid(VehicleMesh) || VehicleVariants.Num() == 0)
 	{
 		return;
 	}
 
-	UStaticMesh* ChosenMesh =
-		MeshVariants[FMath::RandRange(0, MeshVariants.Num() - 1)];
+	// Weighted draw, so the mix can be made to look like real traffic rather
+	// than an even spread of refuse lorries and police cars.
+	float TotalWeight = 0.0f;
 
-	if (!ChosenMesh)
+	for (const FTrafficVehicleVariant& Variant : VehicleVariants)
 	{
-		return;
-	}
-
-	VehicleMesh->SetStaticMesh(ChosenMesh);
-	VehicleMesh->SetRelativeRotation(MeshRotationOffset);
-
-	float FinalScale = MeshScale;
-
-	if (bScaleMeshToVehicleLength)
-	{
-		// Longest horizontal axis is taken as the vehicle's length, whichever
-		// way round the asset was authored.
-		const FVector MeshSize =
-			ChosenMesh->GetBounds().BoxExtent * 2.0f;
-
-		const float LongestAxisCm =
-			FMath::Max(MeshSize.X, MeshSize.Y);
-
-		if (LongestAxisCm > KINDA_SMALL_NUMBER)
+		if (Variant.IsValid())
 		{
-			FinalScale *= VehicleLengthCm / LongestAxisCm;
+			TotalWeight += FMath::Max(Variant.SelectionWeight, 0.0f);
 		}
 	}
 
+	if (TotalWeight <= KINDA_SMALL_NUMBER)
+	{
+		return;
+	}
+
+	float Roll = FMath::FRandRange(0.0f, TotalWeight);
+
+	const FTrafficVehicleVariant* Chosen = nullptr;
+
+	for (const FTrafficVehicleVariant& Variant : VehicleVariants)
+	{
+		if (!Variant.IsValid())
+		{
+			continue;
+		}
+
+		Roll -= FMath::Max(Variant.SelectionWeight, 0.0f);
+
+		if (Roll <= 0.0f)
+		{
+			Chosen = &Variant;
+			break;
+		}
+	}
+
+	if (!Chosen)
+	{
+		return;
+	}
+
+	VehicleMesh->SetStaticMesh(Chosen->BodyMesh);
+
+	// Wheels travel with the body: a lorry's wheels do not fit a hatchback,
+	// and leaving the previous set in place would show through the new shell.
+	const TPair<UStaticMeshComponent*, UStaticMesh*> WheelAssignments[] =
+	{
+		{ WheelFrontLeft, Chosen->WheelFrontLeftMesh },
+		{ WheelFrontRight, Chosen->WheelFrontRightMesh },
+		{ WheelRearLeft, Chosen->WheelRearLeftMesh },
+		{ WheelRearRight, Chosen->WheelRearRightMesh }
+	};
+
+	for (const TPair<UStaticMeshComponent*, UStaticMesh*>& Assignment :
+		WheelAssignments)
+	{
+		if (Assignment.Key && Assignment.Value)
+		{
+			Assignment.Key->SetStaticMesh(Assignment.Value);
+		}
+	}
+
+	// Heavier types travel slower, which is what produces overtaking pressure
+	// and queues behind them rather than uniformly flowing traffic.
+	SpeedCmPerSecond *= FMath::Max(Chosen->SpeedMultiplier, 0.1f);
+}
+
+void ATrafficLaneFollower::ApplyMeshTransform()
+{
+	if (!IsValid(VehicleMesh))
+	{
+		return;
+	}
+
+	// Applies to whatever mesh is in place, whether it came from a variant or
+	// straight from the Blueprint. Tying this to variant selection meant a
+	// single-mesh vehicle could never be reoriented at all.
+	UStaticMesh* CurrentMesh = VehicleMesh->GetStaticMesh();
+
+	if (!CurrentMesh)
+	{
+		return;
+	}
+
+	VehicleMesh->SetRelativeRotation(MeshRotationOffset);
+
+	// Longest horizontal axis is taken as the vehicle's length, whichever way
+	// round the asset was authored.
+	const FVector MeshSize =
+		CurrentMesh->GetBounds().BoxExtent * 2.0f;
+
+	const float LongestAxisCm = FMath::Max(MeshSize.X, MeshSize.Y);
+
+	float FinalScale = MeshScale;
+
+	if (bScaleMeshToVehicleLength && LongestAxisCm > KINDA_SMALL_NUMBER)
+	{
+		FinalScale *= VehicleLengthCm / LongestAxisCm;
+	}
+
 	VehicleMesh->SetRelativeScale3D(FVector(FinalScale));
+
+	// Taken from the mesh rather than imposed on it, so the gap the follower
+	// keeps behind a lorry reflects the lorry actually being longer. Confined
+	// to play, because this writes to an editable property and doing it on
+	// every construction would overwrite the value in the details panel.
+	const UWorld* World = GetWorld();
+
+	if (bDeriveVehicleLengthFromMesh &&
+		!bScaleMeshToVehicleLength &&
+		LongestAxisCm > KINDA_SMALL_NUMBER &&
+		World &&
+		World->IsGameWorld())
+	{
+		VehicleLengthCm = LongestAxisCm * FinalScale;
+	}
+}
+
+void ATrafficLaneFollower::OnConstruction(const FTransform& Transform)
+{
+	Super::OnConstruction(Transform);
+
+	// Runs in the editor too, so orientation and scale can be judged against
+	// the viewport instead of by starting a run each time. Variant selection
+	// is deliberately excluded: it is random, and rerunning it on every
+	// construction would reshuffle the mesh while properties are being edited.
+	ApplyMeshTransform();
 }
 
 void ATrafficLaneFollower::ConfigureStart(

@@ -23,6 +23,55 @@ enum class ETrafficLaneEndBehavior : uint8
     Destroy UMETA(DisplayName = "Destroy")
 };
 
+// One complete vehicle: a body and its four wheels, which travel together
+// because a truck's wheels do not fit a hatchback.
+USTRUCT(BlueprintType)
+struct TRAFFICSIMULATION_API FTrafficVehicleVariant
+{
+    GENERATED_BODY()
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic Vehicle")
+    FName Name;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic Vehicle")
+    TObjectPtr<UStaticMesh> BodyMesh;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic Vehicle")
+    TObjectPtr<UStaticMesh> WheelFrontLeftMesh;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic Vehicle")
+    TObjectPtr<UStaticMesh> WheelFrontRightMesh;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic Vehicle")
+    TObjectPtr<UStaticMesh> WheelRearLeftMesh;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic Vehicle")
+    TObjectPtr<UStaticMesh> WheelRearRightMesh;
+
+    // Relative likelihood of being chosen. Ordinary cars should outnumber
+    // police cars and refuse lorries, or the traffic reads as a parade.
+    UPROPERTY(
+        EditAnywhere,
+        BlueprintReadWrite,
+        Category = "Traffic Vehicle",
+        meta = (ClampMin = "0.0", UIMin = "0.0"))
+    float SelectionWeight = 1.0f;
+
+    // Fraction of the desired speed this type travels at. Lorries holding up
+    // the traffic behind them is a large part of what makes a road look real.
+    UPROPERTY(
+        EditAnywhere,
+        BlueprintReadWrite,
+        Category = "Traffic Vehicle",
+        meta = (ClampMin = "0.1", UIMin = "0.1", ClampMax = "2.0"))
+    float SpeedMultiplier = 1.0f;
+
+    bool IsValid() const
+    {
+        return BodyMesh != nullptr;
+    }
+};
+
 UCLASS()
 class TRAFFICSIMULATION_API ATrafficLaneFollower : public AActor
 {
@@ -36,6 +85,8 @@ public:
 
     virtual void EndPlay(
         const EEndPlayReason::Type EndPlayReason) override;
+
+    virtual void OnConstruction(const FTransform& Transform) override;
 
     // Sets the fields BeginPlay reads before it runs. Intended for use with
     // SpawnActorDeferred, so a procedural builder can configure a vehicle
@@ -120,6 +171,10 @@ private:
 
     void ApplyMeshVariant();
 
+    // Orientation and scale correction. Kept apart from variant selection so
+    // it still runs when no variants are configured.
+    void ApplyMeshTransform();
+
     // Fills in the parts of DebugState that are not already known from
     // UpdateSpeed, and applies the state colour if materials are assigned.
     void UpdateDebugState();
@@ -129,6 +184,14 @@ private:
 
     UPROPERTY(VisibleAnywhere, Category = "Traffic Vehicle")
     TObjectPtr<UStaticMeshComponent> VehicleMesh;
+    UPROPERTY(VisibleAnywhere, Category = "Traffic Vehicle")
+    TObjectPtr<UStaticMeshComponent> WheelRearLeft;
+    UPROPERTY(VisibleAnywhere, Category = "Traffic Vehicle")
+    TObjectPtr<UStaticMeshComponent> WheelRearRight;
+    UPROPERTY(VisibleAnywhere, Category = "Traffic Vehicle")
+    TObjectPtr<UStaticMeshComponent> WheelFrontLeft;
+    UPROPERTY(VisibleAnywhere, Category = "Traffic Vehicle")
+    TObjectPtr<UStaticMeshComponent> WheelFrontRight;
 
     UPROPERTY(
         EditInstanceOnly,
@@ -214,10 +277,11 @@ private:
     float HeightOffsetCm = 60.0f;
 
     // One is picked per vehicle on spawn, so a populated network is not a
-    // fleet of identical cars. Leave empty to keep whatever mesh the
-    // Blueprint already has.
+    // fleet of identical cars. Pre-filled from Content/Models/Vehicles by
+    // folder name; empty folders are skipped and appear once populated.
+    // Leave the list empty to keep whatever meshes the Blueprint has.
     UPROPERTY(EditAnywhere, Category = "Traffic Vehicle|Presentation")
-    TArray<TObjectPtr<UStaticMesh>> MeshVariants;
+    TArray<FTrafficVehicleVariant> VehicleVariants;
 
     // Applied to whichever variant is chosen. Imported assets rarely face
     // down +X at the scale the simulation works in, and correcting that on
@@ -231,11 +295,17 @@ private:
         meta = (ClampMin = "0.01", UIMin = "0.01"))
     float MeshScale = 1.0f;
 
-    // When set, the chosen variant is scaled so its longest horizontal axis
-    // matches VehicleLengthCm. Makes assets of any source size agree with the
-    // gaps the simulation is actually keeping.
+    // Forces every variant to the same length by scaling it. Off by default
+    // because it flattens the difference between a hatchback and a lorry,
+    // which is most of the point of having variants.
     UPROPERTY(EditAnywhere, Category = "Traffic Vehicle|Presentation")
-    bool bScaleMeshToVehicleLength = true;
+    bool bScaleMeshToVehicleLength = false;
+
+    // Takes VehicleLengthCm from the body mesh instead, so the gaps the
+    // simulation keeps match what is actually on screen and a lorry is
+    // genuinely given more room than a car.
+    UPROPERTY(EditAnywhere, Category = "Traffic Vehicle|Presentation")
+    bool bDeriveVehicleLengthFromMesh = true;
 
     UPROPERTY(
         EditInstanceOnly,
