@@ -149,6 +149,11 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Traffic Network|Connections")
     void ConnectRoads(ATrafficRoad* FirstRoad, ATrafficRoad* SecondRoad);
 
+    // The network draws its own connection arrows, separately from the lines
+    // roads and junctions draw. Silencing those alone leaves these behind.
+    UFUNCTION(BlueprintCallable, Category = "Traffic Network|Debug")
+    void SetDebugDrawEnabled(bool bNewEnabled);
+
     // Vehicles register on BeginPlay/unregister on EndPlay so the network can
     // answer forward-gap queries without every vehicle doing its own O(N)
     // world scan independently.
@@ -222,7 +227,7 @@ private:
     UPROPERTY(
         EditAnywhere,
         Category = "Traffic Network|Debug")
-    bool bDrawDebugConnections = true;
+    bool bDrawDebugConnections = false;
 
     UPROPERTY(
         EditAnywhere,

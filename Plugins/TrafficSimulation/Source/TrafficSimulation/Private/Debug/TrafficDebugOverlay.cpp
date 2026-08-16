@@ -191,6 +191,11 @@ void ATrafficDebugOverlay::Tick(float DeltaSeconds)
 
 void ATrafficDebugOverlay::ApplyNetworkGeometryVisibility() const
 {
+    if (IsValid(RoadNetwork))
+    {
+        RoadNetwork->SetDebugDrawEnabled(bShowNetworkGeometry);
+    }
+
     for (TActorIterator<ATrafficRoad> It(GetWorld()); It; ++It)
     {
         if (ATrafficRoad* Road = *It)

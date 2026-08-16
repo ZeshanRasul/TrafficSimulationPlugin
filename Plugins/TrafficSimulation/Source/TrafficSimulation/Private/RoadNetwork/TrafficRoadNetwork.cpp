@@ -584,6 +584,11 @@ void ATrafficRoadNetwork::ClearConnections()
     RebuildNetwork();
 }
 
+void ATrafficRoadNetwork::SetDebugDrawEnabled(bool bNewEnabled)
+{
+    bDrawDebugConnections = bNewEnabled;
+}
+
 void ATrafficRoadNetwork::ConnectRoads(
     ATrafficRoad* FirstRoad,
     ATrafficRoad* SecondRoad)

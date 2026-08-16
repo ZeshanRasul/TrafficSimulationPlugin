@@ -813,6 +813,7 @@ void ATrafficDemoSceneBuilder::BuildDemoScene()
 
     Network->MaximumConnectionDistanceCm = ConnectionToleranceCm;
     Network->SetConnectLastRoadToFirst(false);
+    Network->SetDebugDrawEnabled(bShowNetworkDebugLines);
 
     const FVector Origin = GetActorLocation();
 
