@@ -275,6 +275,13 @@ Stated plainly, because knowing the boundary matters more than the gap.
 - **No pedestrians, parking, or multi-lane junction approaches.**
 - **Junction surfaces are axis-aligned**, sized to the connector bounds. Fine
   for grid layouts, approximate for rotated junctions.
+- **Road-to-road connections assume coincident lane endpoints.** Where two
+  roads are joined directly, a vehicle moves from one lane to the next in a
+  single step; any gap between those endpoints is crossed instantaneously
+  rather than driven across. Junctions are unaffected, because they generate
+  real connector geometry between approaches. The demo scene keeps its road
+  joins tangent-continuous so no visible gap arises, but a hand-built network
+  with loosely aligned roads will show a small jump at the join.
 
 ---
 
