@@ -463,6 +463,20 @@ void ATrafficRoadNetwork::BuildConnectionsBetweenRoads(
                     continue;
                 }
 
+                // Proximity alone is not enough where two roads meet at an
+                // angle: every lane end is inside the search radius, and the
+                // nearest one can be the lane running the other way. Joining
+                // to it puts traffic on the wrong side of the carriageway.
+                const float AlignmentDot =
+                    FVector::DotProduct(
+                        SourceTransform.GetUnitAxis(EAxis::X),
+                        TargetTransform.GetUnitAxis(EAxis::X));
+
+                if (AlignmentDot < MinimumConnectionAlignment)
+                {
+                    continue;
+                }
+
                 const float DistanceSquared =
                     FVector::DistSquared(
                         SourceTransform.GetLocation(),

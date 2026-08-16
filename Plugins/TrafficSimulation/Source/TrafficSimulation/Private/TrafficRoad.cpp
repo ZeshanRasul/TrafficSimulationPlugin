@@ -314,10 +314,25 @@ void ATrafficRoad::RebuildRoadSurface()
 		return;
 	}
 
-	const int32 SegmentCount =
-		RoadSpline->IsClosedLoop()
-		? SplinePointCount
-		: SplinePointCount - 1;
+	const float SplineLengthCm = RoadSpline->GetSplineLength();
+
+	if (SplineLengthCm <= KINDA_SMALL_NUMBER)
+	{
+		return;
+	}
+
+	// Subdivided by distance rather than one piece per spline point. A single
+	// spline mesh between two points is a stiff approximation of the curve
+	// between them, so a road built that way corners in a couple of straight
+	// runs while the lanes, which are sampled along the spline, curve
+	// properly. Sampling both the same way keeps the tarmac under the lanes.
+	const int32 SegmentCount = FMath::Max(
+		FMath::CeilToInt(
+			SplineLengthCm / FMath::Max(RoadSurfaceSegmentLengthCm, 10.0f)),
+		1);
+
+	const float SegmentLengthCm =
+		SplineLengthCm / static_cast<float>(SegmentCount);
 
 	const float RoadWidthCm =
 		static_cast<float>(LaneCount) * LaneWidthCm;
@@ -358,36 +373,67 @@ void ATrafficRoad::RebuildRoadSurface()
 		RoadWidthCm / MeshWidthCm,
 		RoadThicknessCm / MeshThicknessCm);
 
+	// An imported tile is not necessarily modelled around its own pivot. Any
+	// offset between the two shifts the whole carriageway sideways from the
+	// spline, which leaves the lanes sitting off-centre on it: on a straight
+	// both still land on tarmac, but through a bend the outer one runs off
+	// the edge entirely. Cancelling the mesh's own centre puts the surface
+	// back on the line the lanes are generated from.
+	const FVector MeshCentre = RoadSurfaceMesh->GetBounds().Origin;
+
+	FVector2D SurfaceOffset(0.0f, 0.0f);
+
+	switch (RoadSurfaceForwardAxis)
+	{
+	case ESplineMeshAxis::Y:
+		SurfaceOffset = FVector2D(-MeshCentre.X, -MeshCentre.Z);
+		break;
+
+	case ESplineMeshAxis::Z:
+		SurfaceOffset = FVector2D(-MeshCentre.X, -MeshCentre.Y);
+		break;
+
+	case ESplineMeshAxis::X:
+	default:
+		SurfaceOffset = FVector2D(-MeshCentre.Y, -MeshCentre.Z);
+		break;
+	}
+
+	// Expressed in the mesh's own units, so it has to be scaled the same way
+	// the cross-section is.
+	SurfaceOffset *= SurfaceScale;
+
 	RoadSurfaceComponents.Reserve(SegmentCount);
 
 	for (int32 SegmentIndex = 0;
 		SegmentIndex < SegmentCount;
 		++SegmentIndex)
 	{
-		const int32 StartPointIndex = SegmentIndex;
+		const float StartDistanceCm = SegmentIndex * SegmentLengthCm;
 
-		const int32 EndPointIndex =
-			(SegmentIndex + 1) % SplinePointCount;
+		const float EndDistanceCm = StartDistanceCm + SegmentLengthCm;
 
 		const FVector StartPosition =
-			RoadSpline->GetLocationAtSplinePoint(
-				StartPointIndex,
-				ESplineCoordinateSpace::Local);
-
-		const FVector StartTangent =
-			RoadSpline->GetTangentAtSplinePoint(
-				StartPointIndex,
+			RoadSpline->GetLocationAtDistanceAlongSpline(
+				StartDistanceCm,
 				ESplineCoordinateSpace::Local);
 
 		const FVector EndPosition =
-			RoadSpline->GetLocationAtSplinePoint(
-				EndPointIndex,
+			RoadSpline->GetLocationAtDistanceAlongSpline(
+				EndDistanceCm,
 				ESplineCoordinateSpace::Local);
 
+		// Scaled to the sub-segment: a hermite over a short span with the
+		// curve's own direction at each end tracks it closely.
+		const FVector StartTangent =
+			RoadSpline->GetDirectionAtDistanceAlongSpline(
+				StartDistanceCm,
+				ESplineCoordinateSpace::Local) * SegmentLengthCm;
+
 		const FVector EndTangent =
-			RoadSpline->GetTangentAtSplinePoint(
-				EndPointIndex,
-				ESplineCoordinateSpace::Local);
+			RoadSpline->GetDirectionAtDistanceAlongSpline(
+				EndDistanceCm,
+				ESplineCoordinateSpace::Local) * SegmentLengthCm;
 
 		USplineMeshComponent* SurfaceComponent =
 			NewObject<USplineMeshComponent>(this);
@@ -431,6 +477,14 @@ void ATrafficRoad::RebuildRoadSurface()
 
 		SurfaceComponent->SetEndScale(
 			SurfaceScale,
+			false);
+
+		SurfaceComponent->SetStartOffset(
+			SurfaceOffset,
+			false);
+
+		SurfaceComponent->SetEndOffset(
+			SurfaceOffset,
 			false);
 
 		if (RoadSurfaceMaterial)

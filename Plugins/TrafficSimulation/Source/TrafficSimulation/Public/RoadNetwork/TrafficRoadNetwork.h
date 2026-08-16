@@ -117,6 +117,16 @@ public:
             Units = "cm"))
     float MaximumConnectionDistanceCm = 500.0f;
 
+    // Lowest dot product between two lane directions that still counts as a
+    // sensible join. Zero rejects anything turning more than a right angle,
+    // which is what stops a lane connecting to its oncoming neighbour where
+    // roads meet at a corner. Raise it to demand straighter joins.
+    UPROPERTY(
+        EditAnywhere,
+        Category = "Traffic Network|Connections",
+        meta = (ClampMin = "-1.0", UIMin = "-1.0", ClampMax = "1.0"))
+    float MinimumConnectionAlignment = 0.0f;
+
     UFUNCTION(BlueprintCallable, Category = "Traffic Network|Roads")
     void AddRoad(ATrafficRoad* Road);
 

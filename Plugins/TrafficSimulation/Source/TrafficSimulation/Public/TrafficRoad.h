@@ -203,6 +203,20 @@ private:
         meta = (AllowPrivateAccess = "true", Units = "deg"))
     float RoadSurfaceRollDegrees = 0.0f;
 
+    // Length of each piece the surface is built from. Shorter pieces follow a
+    // bend more closely and repeat the tile's markings more often; longer
+    // ones cost fewer components but stretch the texture and cut corners.
+    UPROPERTY(
+        EditAnywhere,
+        BlueprintReadOnly,
+        Category = "Traffic Road|Rendering",
+        meta = (
+            AllowPrivateAccess = "true",
+            ClampMin = "50.0",
+            UIMin = "50.0",
+            Units = "cm"))
+    float RoadSurfaceSegmentLengthCm = 400.0f;
+
     UPROPERTY(
         EditAnywhere,
         BlueprintReadOnly,
