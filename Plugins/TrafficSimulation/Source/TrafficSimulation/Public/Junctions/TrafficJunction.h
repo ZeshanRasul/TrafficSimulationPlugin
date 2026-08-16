@@ -506,6 +506,15 @@ private:
             Units = "cm"))
     float SignalSetbackCm = 250.0f;
 
+    // Sideways from the lane centre, putting the post on the kerb instead of
+    // in the carriageway where traffic drives through it. Roughly half a road
+    // width plus a margin. Negative values place it on the opposite side.
+    UPROPERTY(
+        EditAnywhere,
+        Category = "Traffic Junction|Signals",
+        meta = (EditCondition = "bUseTrafficSignals", Units = "cm"))
+    float SignalLateralOffsetCm = 420.0f;
+
     UPROPERTY(
         EditAnywhere,
         Category = "Traffic Junction|Signals",
@@ -545,7 +554,7 @@ private:
     UPROPERTY(
         EditAnywhere,
         Category = "Traffic Junction|Debug")
-    bool bDrawDebugConnectors = true;
+    bool bDrawDebugConnectors = false;
 
     UPROPERTY(
         EditAnywhere,

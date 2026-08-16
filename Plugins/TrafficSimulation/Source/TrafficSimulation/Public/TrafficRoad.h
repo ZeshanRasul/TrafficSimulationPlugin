@@ -136,7 +136,7 @@ private:
     float LaneWidthCm = 350.0f;
 
     UPROPERTY(EditAnywhere, Category = "Traffic Road|Debug")
-    bool bDrawDebugLanes = true;
+    bool bDrawDebugLanes = false;
 
     UPROPERTY(
         EditAnywhere,
@@ -217,7 +217,7 @@ private:
     UPROPERTY(
         EditAnywhere,
         Category = "Traffic Road|Debug")
-    bool bDrawLaneDirections = true;
+    bool bDrawLaneDirections = false;
 
     UPROPERTY(
         EditAnywhere,

@@ -270,13 +270,94 @@ void ATrafficCameraRig::UpdateJunctionOrbit(float DeltaSeconds)
 
     const FVector Centre = Junction->GetActorLocation();
 
-    const FVector Offset(
-        FMath::Cos(YawRadians) * OrbitRadiusCm,
-        FMath::Sin(YawRadians) * OrbitRadiusCm,
-        OrbitHeightCm);
+    // Aimed at roughly where the traffic is rather than the road surface, so
+    // the junction sits in frame instead of at the very bottom of it.
+    const FVector LookAtPoint = Centre + FVector::UpVector * 150.0f;
 
-    SetActorLocation(Centre + Offset);
-    SetActorRotation((Centre - (Centre + Offset)).Rotation());
+    const FVector OrbitDirection(
+        FMath::Cos(YawRadians),
+        FMath::Sin(YawRadians),
+        0.0f);
+
+    float AllowedRadiusCm = OrbitRadiusCm;
+
+    if (bAvoidObstructions && GetWorld())
+    {
+        const FVector DesiredLocation =
+            Centre +
+            OrbitDirection * OrbitRadiusCm +
+            FVector::UpVector * OrbitHeightCm;
+
+        FHitResult Hit;
+
+        FCollisionQueryParams Params(SCENE_QUERY_STAT(TrafficOrbit), false);
+        Params.AddIgnoredActor(this);
+        Params.AddIgnoredActor(Junction);
+
+        // Traced outward from the junction: the first thing standing between
+        // the two is what the camera has to come in front of.
+        if (GetWorld()->LineTraceSingleByChannel(
+            Hit,
+            LookAtPoint,
+            DesiredLocation,
+            ECC_Visibility,
+            Params))
+        {
+            const float HitDistanceCm =
+                FVector::Dist(LookAtPoint, Hit.ImpactPoint);
+
+            // Converted back into an orbit radius, since the trace runs along
+            // the diagonal while the radius is measured horizontally.
+            const float DiagonalLengthCm =
+                FMath::Sqrt(
+                    FMath::Square(OrbitRadiusCm) +
+                    FMath::Square(OrbitHeightCm));
+
+            const float Fraction =
+                DiagonalLengthCm > KINDA_SMALL_NUMBER
+                ? FMath::Clamp(
+                    (HitDistanceCm - ObstructionPaddingCm) /
+                        DiagonalLengthCm,
+                    0.1f,
+                    1.0f)
+                : 1.0f;
+
+            AllowedRadiusCm = OrbitRadiusCm * Fraction;
+        }
+    }
+
+    if (CurrentOrbitRadiusCm <= KINDA_SMALL_NUMBER)
+    {
+        CurrentOrbitRadiusCm = AllowedRadiusCm;
+    }
+
+    // Closing in happens quickly so the camera never ends up inside a wall;
+    // opening back out is deliberately slower so the recovery is not a snap.
+    const float InterpSpeed =
+        AllowedRadiusCm < CurrentOrbitRadiusCm
+        ? ObstructionRecoverySpeed * 4.0f
+        : ObstructionRecoverySpeed;
+
+    CurrentOrbitRadiusCm = FMath::FInterpTo(
+        CurrentOrbitRadiusCm,
+        AllowedRadiusCm,
+        DeltaSeconds,
+        InterpSpeed);
+
+    const float HeightScale =
+        OrbitRadiusCm > KINDA_SMALL_NUMBER
+        ? CurrentOrbitRadiusCm / OrbitRadiusCm
+        : 1.0f;
+
+    // Height comes in with the radius, keeping the camera on the same line of
+    // sight rather than dropping it towards the road as it approaches.
+    const FVector Location =
+        Centre +
+        OrbitDirection * CurrentOrbitRadiusCm +
+        FVector::UpVector * OrbitHeightCm * HeightScale;
+
+    SetActorLocation(Location);
+    SetActorRotation((LookAtPoint - Location).Rotation());
 }
 
 void ATrafficCameraRig::UpdateChase(float DeltaSeconds)

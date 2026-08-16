@@ -176,6 +176,7 @@ ATrafficRoad* ATrafficDemoSceneBuilder::SpawnRoad(
     Road->SetRoadSurface(RoadSurfaceMesh, RoadSurfaceMaterial);
 
     Road->SetSplinePoints(WorldPoints, bRoadClosedLoop);
+    Road->SetDebugDrawEnabled(bShowNetworkDebugLines);
 
     RegisterSpawnedActor(Road);
 
@@ -973,6 +974,7 @@ void ATrafficDemoSceneBuilder::BuildDemoScene()
             Junction->SetActorLocation(GetJunctionLocation(Column, Row));
             Junction->RoadNetwork = Network;
             Junction->SetJunctionRadiusCm(JunctionRadiusCm);
+            Junction->SetDebugDrawEnabled(bShowNetworkDebugLines);
 
             // Added strictly in direction order, so approach index 0 is
             // always +X, 1 is +Y, 2 is -X and 3 is -Y. That is what lets the

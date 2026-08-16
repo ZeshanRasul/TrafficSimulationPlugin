@@ -129,6 +129,27 @@ private:
         meta = (Units = "deg/s"))
     float OrbitYawSpeed = 9.0f;
 
+    // Pulls the camera in when a building comes between it and the junction,
+    // rather than letting the shot cut through the interior of one.
+    UPROPERTY(EditAnywhere, Category = "Traffic Camera|Junction Orbit")
+    bool bAvoidObstructions = true;
+
+    // Stops short of whatever was hit, so the near clip plane does not end up
+    // inside the wall it just found.
+    UPROPERTY(
+        EditAnywhere,
+        Category = "Traffic Camera|Junction Orbit",
+        meta = (ClampMin = "0.0", UIMin = "0.0", Units = "cm"))
+    float ObstructionPaddingCm = 250.0f;
+
+    // How quickly the radius recovers once the view clears. Low values keep
+    // the move gradual, which matters far more on camera than reacting fast.
+    UPROPERTY(
+        EditAnywhere,
+        Category = "Traffic Camera|Junction Orbit",
+        meta = (ClampMin = "0.1", UIMin = "0.1"))
+    float ObstructionRecoverySpeed = 1.5f;
+
     UPROPERTY(
         EditAnywhere,
         Category = "Traffic Camera|Chase",
@@ -157,6 +178,10 @@ private:
     int32 TargetIndex = 0;
     float OrbitAngleDegrees = 0.0f;
     bool bChaseInitialised = false;
+
+    // Eased rather than snapped, so passing behind a building is a gentle
+    // move in and back out instead of a jump.
+    float CurrentOrbitRadiusCm = 0.0f;
 
     static constexpr uint64 StatusMessageKey = 0x7A11C003;
 };

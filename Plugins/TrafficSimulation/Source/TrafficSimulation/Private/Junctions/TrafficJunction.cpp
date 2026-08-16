@@ -1314,12 +1314,15 @@ void ATrafficJunction::RebuildSignalIndicators()
         Indicator->RegisterComponent();
 
         const FVector Forward = ApproachTransform.GetUnitAxis(EAxis::X);
+        const FVector Right = ApproachTransform.GetUnitAxis(EAxis::Y);
 
-        // Sits back along the approach direction from the stop line, so it
-        // reads to an oncoming driver rather than hovering over the box.
+        // Sits back along the approach direction from the stop line so it
+        // reads to an oncoming driver, and off to the side so the post stands
+        // on the kerb rather than in the lane traffic is using.
         const FVector Location =
             ApproachTransform.GetLocation() -
             Forward * SignalSetbackCm +
+            Right * SignalLateralOffsetCm +
             FVector::UpVector * SignalHeightCm;
 
         Indicator->SetWorldLocation(Location);

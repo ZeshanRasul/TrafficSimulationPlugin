@@ -209,6 +209,12 @@ private:
     UPROPERTY(EditAnywhere, Category = "Traffic Demo|Debug")
     bool bSpawnCameraRig = false;
 
+    // Lane and connector lines the roads and junctions draw for themselves.
+    // Applied at build time, so it holds whether or not a debug overlay is
+    // present to drive it.
+    UPROPERTY(EditAnywhere, Category = "Traffic Demo|Debug")
+    bool bShowNetworkDebugLines = false;
+
     // Fills the blocks between junctions, which is what makes the network
     // read as a city rather than roads in a void.
     UPROPERTY(EditAnywhere, Category = "Traffic Demo|Buildings")
