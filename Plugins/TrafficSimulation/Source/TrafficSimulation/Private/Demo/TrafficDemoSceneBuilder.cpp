@@ -5,6 +5,7 @@
 #include "Demo/TrafficCameraRig.h"
 #include "Demo/TrafficCongestionExperiment.h"
 #include "Engine/StaticMesh.h"
+#include "Engine/StaticMeshActor.h"
 #include "EngineUtils.h"
 #include "Junctions/TrafficJunction.h"
 #include "Materials/MaterialInterface.h"
@@ -100,6 +101,49 @@ ATrafficDemoSceneBuilder::ATrafficDemoSceneBuilder()
     if (GreenMaterialFinder.Succeeded())
     {
         GreenSignalMaterial = GreenMaterialFinder.Object;
+    }
+
+    // Building sets are resolved by name so the lists come pre-filled.
+    // Anything missing is simply skipped, and both lists stay editable.
+    const TCHAR* BuildingNames[] =
+    {
+        TEXT("b"), TEXT("c"), TEXT("d"), TEXT("e"), TEXT("f"),
+        TEXT("g"), TEXT("h"), TEXT("i"), TEXT("j"), TEXT("k"),
+        TEXT("l"), TEXT("m"), TEXT("n")
+    };
+
+    for (const TCHAR* Name : BuildingNames)
+    {
+        const FString Path = FString::Printf(
+            TEXT("/Game/Models/Buildings/building-%s.building-%s"),
+            Name,
+            Name);
+
+        if (UStaticMesh* Mesh = Cast<UStaticMesh>(
+            StaticLoadObject(UStaticMesh::StaticClass(), nullptr, *Path)))
+        {
+            BuildingMeshes.Add(Mesh);
+        }
+    }
+
+    const TCHAR* SkyscraperNames[] =
+    {
+        TEXT("a"), TEXT("b"), TEXT("c"), TEXT("d"), TEXT("e")
+    };
+
+    for (const TCHAR* Name : SkyscraperNames)
+    {
+        const FString Path = FString::Printf(
+            TEXT("/Game/Models/Buildings/building-skyscraper-%s")
+            TEXT(".building-skyscraper-%s"),
+            Name,
+            Name);
+
+        if (UStaticMesh* Mesh = Cast<UStaticMesh>(
+            StaticLoadObject(UStaticMesh::StaticClass(), nullptr, *Path)))
+        {
+            SkyscraperMeshes.Add(Mesh);
+        }
     }
 }
 
@@ -292,6 +336,275 @@ void ATrafficDemoSceneBuilder::SpawnVehiclesOnRoad(
         NewVehicle->FinishSpawning(SpawnTransform);
 
         RegisterSpawnedActor(NewVehicle);
+    }
+}
+
+bool ATrafficDemoSceneBuilder::SpawnBuildingOnPlot(
+    const FVector& PlotCentre,
+    float NormalisedDistanceFromCentre,
+    float PlotSizeCm)
+{
+    UWorld* World = GetWorld();
+
+    if (!World || SpawnedBuildingCount >= MaxBuildings)
+    {
+        return false;
+    }
+
+    // Towers cluster in the middle and thin out towards the edge, so the
+    // skyline has a centre rather than being uniformly tall.
+    const float TowerChance =
+        SkyscraperCentreChance *
+        (1.0f - FMath::Clamp(NormalisedDistanceFromCentre, 0.0f, 1.0f));
+
+    const bool bUseTower =
+        SkyscraperMeshes.Num() > 0 &&
+        FMath::FRand() < TowerChance;
+
+    const TArray<TObjectPtr<UStaticMesh>>& Pool =
+        bUseTower ? SkyscraperMeshes : BuildingMeshes;
+
+    if (Pool.Num() == 0)
+    {
+        return false;
+    }
+
+    UStaticMesh* Mesh = Pool[FMath::RandRange(0, Pool.Num() - 1)];
+
+    if (!Mesh)
+    {
+        return false;
+    }
+
+    AStaticMeshActor* Building = World->SpawnActor<AStaticMeshActor>();
+
+    if (!IsValid(Building))
+    {
+        return false;
+    }
+
+    UStaticMeshComponent* MeshComponent =
+        Building->GetStaticMeshComponent();
+
+    if (!MeshComponent)
+    {
+        Building->Destroy();
+        return false;
+    }
+
+    // Movable avoids the static-mobility warnings that come from positioning
+    // an actor immediately after spawning it.
+    MeshComponent->SetMobility(EComponentMobility::Movable);
+    MeshComponent->SetStaticMesh(Mesh);
+
+    const FVector MeshSize = Mesh->GetBounds().BoxExtent * 2.0f;
+
+    const float FootprintCm =
+        FMath::Max(FMath::Max(MeshSize.X, MeshSize.Y), 1.0f);
+
+    // Scaled from the mesh's own footprint, so a swapped-in asset set lands
+    // at the right size without the plot layout being retuned.
+    const float PlanScale =
+        PlotSizeCm * BuildingPlotFillFraction / FootprintCm;
+
+    const float HeightScale =
+        PlanScale *
+        (1.0f + FMath::FRandRange(
+            -BuildingHeightVariation,
+            BuildingHeightVariation));
+
+    MeshComponent->SetWorldScale3D(
+        FVector(PlanScale, PlanScale, FMath::Max(HeightScale, 0.05f)));
+
+    // Quarter turns keep the blocks reading as a grid; a small jitter stops
+    // them looking stamped.
+    const float YawDegrees =
+        90.0f * FMath::RandRange(0, 3) + FMath::FRandRange(-4.0f, 4.0f);
+
+    Building->SetActorLocation(
+        FVector(
+            PlotCentre.X,
+            PlotCentre.Y,
+            PlotCentre.Z - Mesh->GetBounds().Origin.Z * PlanScale +
+                MeshSize.Z * 0.5f * FMath::Max(HeightScale, 0.05f)));
+
+    Building->SetActorRotation(FRotator(0.0f, YawDegrees, 0.0f));
+
+    RegisterSpawnedActor(Building);
+    ++SpawnedBuildingCount;
+
+    return true;
+}
+
+void ATrafficDemoSceneBuilder::SpawnBuildings(
+    const FVector& Origin,
+    int32 Columns,
+    int32 Rows,
+    const FBox& NetworkBounds)
+{
+    SpawnedBuildingCount = 0;
+
+    if (BuildingMeshes.Num() == 0 && SkyscraperMeshes.Num() == 0)
+    {
+        return;
+    }
+
+    const float RequestedPlotCm = FMath::Max(BuildingPlotSizeCm, 100.0f);
+
+    const float GridHalfXCm = (Columns - 1) * 0.5f * JunctionSpacingCm;
+    const float GridHalfYCm = (Rows - 1) * 0.5f * JunctionSpacingCm;
+
+    const float GridRadiusCm =
+        FMath::Max(
+            FMath::Max(GridHalfXCm, GridHalfYCm),
+            JunctionSpacingCm * 0.5f);
+
+    if (bSpawnInteriorBuildings)
+    {
+        // Everything the ring encloses is available, not just the gaps
+        // between junctions. Filling block by block leaves the strip between
+        // the outermost junctions and the ring empty, along with the corners.
+        // The stub ends mark where the ring runs, and it only ever bows
+        // further out from there, so a box inset from them stays clear of it.
+        const float RegionHalfXCm =
+            GridHalfXCm + SpurLengthCm - BuildingRoadClearanceCm;
+
+        const float RegionHalfYCm =
+            GridHalfYCm + SpurLengthCm - BuildingRoadClearanceCm;
+
+        if (RegionHalfXCm > 0.0f && RegionHalfYCm > 0.0f)
+        {
+            const int32 PlotsX = FMath::Max(
+                FMath::RoundToInt(RegionHalfXCm * 2.0f / RequestedPlotCm),
+                1);
+
+            const int32 PlotsY = FMath::Max(
+                FMath::RoundToInt(RegionHalfYCm * 2.0f / RequestedPlotCm),
+                1);
+
+            const float PlotXCm = RegionHalfXCm * 2.0f / PlotsX;
+            const float PlotYCm = RegionHalfYCm * 2.0f / PlotsY;
+
+            // The roads run along the junction rows and columns, so a plot is
+            // on one exactly when it shares either coordinate with them.
+            auto IsOnRoad =
+                [&](const FVector& Point)
+                {
+                    for (int32 Column = 0; Column < Columns; ++Column)
+                    {
+                        const float RoadX =
+                            Origin.X +
+                            (Column - (Columns - 1) * 0.5f) *
+                                JunctionSpacingCm;
+
+                        if (FMath::Abs(Point.X - RoadX) <
+                            BuildingRoadClearanceCm)
+                        {
+                            return true;
+                        }
+                    }
+
+                    for (int32 Row = 0; Row < Rows; ++Row)
+                    {
+                        const float RoadY =
+                            Origin.Y +
+                            (Row - (Rows - 1) * 0.5f) * JunctionSpacingCm;
+
+                        if (FMath::Abs(Point.Y - RoadY) <
+                            BuildingRoadClearanceCm)
+                        {
+                            return true;
+                        }
+                    }
+
+                    return false;
+                };
+
+            for (int32 PlotY = 0; PlotY < PlotsY; ++PlotY)
+            {
+                for (int32 PlotX = 0; PlotX < PlotsX; ++PlotX)
+                {
+                    const FVector PlotCentre(
+                        Origin.X - RegionHalfXCm +
+                            (PlotX + 0.5f) * PlotXCm,
+                        Origin.Y - RegionHalfYCm +
+                            (PlotY + 0.5f) * PlotYCm,
+                        Origin.Z);
+
+                    if (IsOnRoad(PlotCentre))
+                    {
+                        continue;
+                    }
+
+                    const float DistanceFromCentre =
+                        FVector::Dist2D(PlotCentre, Origin);
+
+                    SpawnBuildingOnPlot(
+                        PlotCentre,
+                        DistanceFromCentre / GridRadiusCm,
+                        FMath::Min(PlotXCm, PlotYCm));
+                }
+            }
+        }
+    }
+
+    if (!bSpawnExteriorBuildings || !NetworkBounds.IsValid)
+    {
+        return;
+    }
+
+    // Measured from where the roads actually are. The perimeter is a rounded
+    // rectangle whose corners reach further than any circle centred on the
+    // origin would suggest, so a radius test leaves buildings on the ring.
+    const FBox ExclusionBounds =
+        NetworkBounds.ExpandBy(
+            FVector(
+                BuildingRoadClearanceCm,
+                BuildingRoadClearanceCm,
+                0.0f));
+
+    const FBox OuterBounds =
+        ExclusionBounds.ExpandBy(
+            FVector(
+                RequestedPlotCm * ExteriorBuildingDepth,
+                RequestedPlotCm * ExteriorBuildingDepth,
+                0.0f));
+
+    const int32 PlotsX = FMath::Max(
+        FMath::CeilToInt(OuterBounds.GetSize().X / RequestedPlotCm),
+        1);
+
+    const int32 PlotsY = FMath::Max(
+        FMath::CeilToInt(OuterBounds.GetSize().Y / RequestedPlotCm),
+        1);
+
+    for (int32 PlotY = 0; PlotY < PlotsY; ++PlotY)
+    {
+        for (int32 PlotX = 0; PlotX < PlotsX; ++PlotX)
+        {
+            const FVector PlotCentre(
+                OuterBounds.Min.X + (PlotX + 0.5f) * RequestedPlotCm,
+                OuterBounds.Min.Y + (PlotY + 0.5f) * RequestedPlotCm,
+                Origin.Z);
+
+            // Anything overlapping the roads, rather than merely near the
+            // origin, is skipped.
+            if (PlotCentre.X > ExclusionBounds.Min.X &&
+                PlotCentre.X < ExclusionBounds.Max.X &&
+                PlotCentre.Y > ExclusionBounds.Min.Y &&
+                PlotCentre.Y < ExclusionBounds.Max.Y)
+            {
+                continue;
+            }
+
+            const float DistanceFromCentre =
+                FVector::Dist2D(PlotCentre, Origin);
+
+            SpawnBuildingOnPlot(
+                PlotCentre,
+                DistanceFromCentre / GridRadiusCm,
+                RequestedPlotCm);
+        }
     }
 }
 
@@ -491,6 +804,10 @@ void ATrafficDemoSceneBuilder::BuildDemoScene()
     // Outer ends of the stub roads, which the perimeter ring will join up.
     TArray<TPair<FVector, ATrafficRoad*>> StubEnds;
 
+    // Every point any road passes through, used later to keep buildings off
+    // the network. Accumulated from the real geometry rather than estimated.
+    FBox NetworkBounds(ForceInit);
+
     for (int32 Row = 0; Row < Rows; ++Row)
     {
         for (int32 Column = 0; Column < Columns; ++Column)
@@ -567,6 +884,8 @@ void ATrafficDemoSceneBuilder::BuildDemoScene()
                     SetApproach(Column, Row, DirectionIndex, Stub);
 
                     StubEnds.Emplace(OuterPoint, Stub);
+
+                    NetworkBounds += OuterPoint;
                 }
             }
         }
@@ -617,6 +936,10 @@ void ATrafficDemoSceneBuilder::BuildDemoScene()
             Midpoint +
             OutwardDirection *
             FVector::Dist(Start, End) * PerimeterBulgeFraction;
+
+        // The control point bows outside the stub ends, so it sets the true
+        // outer edge of the network.
+        NetworkBounds += ControlPoint;
 
         ATrafficRoad* PerimeterLink = SpawnRoad(
             { Start, ControlPoint, End },
@@ -831,6 +1154,8 @@ void ATrafficDemoSceneBuilder::BuildDemoScene()
         Rows,
         Junctions.Num(),
         Network->GetConnectionCount());
+
+    SpawnBuildings(Origin, Columns, Rows, NetworkBounds);
 
     if (bSpawnCameraRig)
     {

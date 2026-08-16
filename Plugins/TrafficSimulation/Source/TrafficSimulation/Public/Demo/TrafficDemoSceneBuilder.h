@@ -70,6 +70,24 @@ private:
 
     void RegisterSpawnedActor(AActor* Actor);
 
+    // NetworkBounds is the real extent of the roads, gathered as they are
+    // built. A circular exclusion cannot describe a rounded rectangle, and
+    // underestimating it puts buildings on the ring road's corners.
+    void SpawnBuildings(
+        const FVector& Origin,
+        int32 Columns,
+        int32 Rows,
+        const FBox& NetworkBounds);
+
+    // Places one building on a square plot, scaled from its own bounds so any
+    // mesh set can be dropped in without retuning the layout.
+    bool SpawnBuildingOnPlot(
+        const FVector& PlotCentre,
+        float NormalisedDistanceFromCentre,
+        float PlotSizeCm);
+
+    int32 SpawnedBuildingCount = 0;
+
     // How many vehicles a road can take without breaching MinVehicleSpacingCm.
     int32 GetRoadVehicleCapacity(ATrafficRoad* Road) const;
 
@@ -190,6 +208,72 @@ private:
     // Spawns the preset camera rig and hands it the view on begin play.
     UPROPERTY(EditAnywhere, Category = "Traffic Demo|Debug")
     bool bSpawnCameraRig = false;
+
+    // Fills the blocks between junctions, which is what makes the network
+    // read as a city rather than roads in a void.
+    UPROPERTY(EditAnywhere, Category = "Traffic Demo|Buildings")
+    bool bSpawnInteriorBuildings = true;
+
+    // Fills the land outside the perimeter ring. Improves a wide overview
+    // shot but adds the most geometry, so it is separately switchable.
+    UPROPERTY(EditAnywhere, Category = "Traffic Demo|Buildings")
+    bool bSpawnExteriorBuildings = false;
+
+    UPROPERTY(EditAnywhere, Category = "Traffic Demo|Buildings")
+    TArray<TObjectPtr<UStaticMesh>> BuildingMeshes;
+
+    // Kept separate so height can be concentrated near the middle instead of
+    // scattered evenly, which is what gives the skyline a centre.
+    UPROPERTY(EditAnywhere, Category = "Traffic Demo|Buildings")
+    TArray<TObjectPtr<UStaticMesh>> SkyscraperMeshes;
+
+    UPROPERTY(
+        EditAnywhere,
+        Category = "Traffic Demo|Buildings",
+        meta = (ClampMin = "200.0", UIMin = "200.0", Units = "cm"))
+    float BuildingPlotSizeCm = 1800.0f;
+
+    // Gap left between the roads and the nearest building, which is what
+    // stops the city crowding the traffic being demonstrated.
+    UPROPERTY(
+        EditAnywhere,
+        Category = "Traffic Demo|Buildings",
+        meta = (ClampMin = "0.0", UIMin = "0.0", Units = "cm"))
+    float BuildingRoadClearanceCm = 1100.0f;
+
+    // Fraction of its plot a building occupies, leaving the rest as space
+    // between neighbours.
+    UPROPERTY(
+        EditAnywhere,
+        Category = "Traffic Demo|Buildings",
+        meta = (ClampMin = "0.1", UIMin = "0.1", ClampMax = "1.0"))
+    float BuildingPlotFillFraction = 0.72f;
+
+    UPROPERTY(
+        EditAnywhere,
+        Category = "Traffic Demo|Buildings",
+        meta = (ClampMin = "0.0", UIMin = "0.0", ClampMax = "1.0"))
+    float BuildingHeightVariation = 0.35f;
+
+    // Chance of a tower at the very centre, falling to zero at the edge.
+    UPROPERTY(
+        EditAnywhere,
+        Category = "Traffic Demo|Buildings",
+        meta = (ClampMin = "0.0", UIMin = "0.0", ClampMax = "1.0"))
+    float SkyscraperCentreChance = 0.75f;
+
+    // How many plots deep the band outside the ring runs.
+    UPROPERTY(
+        EditAnywhere,
+        Category = "Traffic Demo|Buildings",
+        meta = (ClampMin = "1", UIMin = "1", ClampMax = "8"))
+    int32 ExteriorBuildingDepth = 3;
+
+    UPROPERTY(
+        EditAnywhere,
+        Category = "Traffic Demo|Buildings",
+        meta = (ClampMin = "0", UIMin = "0"))
+    int32 MaxBuildings = 600;
 
     // Spawns the scripted congestion demonstration, wired to the built
     // network and junction. Off by default so an ordinary demo scene runs on
