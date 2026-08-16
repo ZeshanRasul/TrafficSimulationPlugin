@@ -79,6 +79,10 @@ private:
         int32 Rows,
         const FBox& NetworkBounds);
 
+    void SpawnGroundPlane(
+        const FVector& Origin,
+        const FBox& NetworkBounds);
+
     // Places one building on a square plot, scaled from its own bounds so any
     // mesh set can be dropped in without retuning the layout.
     bool SpawnBuildingOnPlot(
@@ -214,6 +218,32 @@ private:
     // present to drive it.
     UPROPERTY(EditAnywhere, Category = "Traffic Demo|Debug")
     bool bShowNetworkDebugLines = false;
+
+    // Without one the city floats over empty space, which undoes most of the
+    // work the buildings do.
+    UPROPERTY(EditAnywhere, Category = "Traffic Demo|Ground")
+    bool bSpawnGroundPlane = true;
+
+    UPROPERTY(EditAnywhere, Category = "Traffic Demo|Ground")
+    TObjectPtr<UStaticMesh> GroundPlaneMesh;
+
+    UPROPERTY(EditAnywhere, Category = "Traffic Demo|Ground")
+    TObjectPtr<UMaterialInterface> GroundPlaneMaterial;
+
+    // How far the ground reaches past the roads. Needs to clear the exterior
+    // buildings, or the city ends on a visible edge.
+    UPROPERTY(
+        EditAnywhere,
+        Category = "Traffic Demo|Ground",
+        meta = (ClampMin = "0.0", UIMin = "0.0", Units = "cm"))
+    float GroundPlaneMarginCm = 30000.0f;
+
+    // Dropped below the road surface so the two do not z-fight.
+    UPROPERTY(
+        EditAnywhere,
+        Category = "Traffic Demo|Ground",
+        meta = (ClampMin = "1.0", UIMin = "1.0", Units = "cm"))
+    float GroundPlaneDepthCm = 40.0f;
 
     // Fills the blocks between junctions, which is what makes the network
     // read as a city rather than roads in a void.

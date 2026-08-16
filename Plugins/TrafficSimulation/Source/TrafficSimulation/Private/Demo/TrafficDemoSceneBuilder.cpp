@@ -57,6 +57,16 @@ ATrafficDemoSceneBuilder::ATrafficDemoSceneBuilder()
         SignalMesh = SphereMeshFinder.Object;
     }
 
+    // A box rather than a plane: a plane is single sided and disappears when
+    // the camera drops below it, which the chase shot does at kerb height.
+    static ConstructorHelpers::FObjectFinder<UStaticMesh> GroundMeshFinder(
+        TEXT("/Engine/BasicShapes/Cube.Cube"));
+
+    if (GroundMeshFinder.Succeeded())
+    {
+        GroundPlaneMesh = GroundMeshFinder.Object;
+    }
+
     // A four-way crossing, matching the four approaches every junction in the
     // grid has. Falls back to the junction's own default if not found.
     static ConstructorHelpers::FObjectFinder<UStaticMesh> CrossroadMeshFinder(
@@ -338,6 +348,62 @@ void ATrafficDemoSceneBuilder::SpawnVehiclesOnRoad(
 
         RegisterSpawnedActor(NewVehicle);
     }
+}
+
+void ATrafficDemoSceneBuilder::SpawnGroundPlane(
+    const FVector& Origin,
+    const FBox& NetworkBounds)
+{
+    UWorld* World = GetWorld();
+
+    if (!World || !GroundPlaneMesh || !NetworkBounds.IsValid)
+    {
+        return;
+    }
+
+    AStaticMeshActor* Ground = World->SpawnActor<AStaticMeshActor>();
+
+    if (!IsValid(Ground))
+    {
+        return;
+    }
+
+    UStaticMeshComponent* MeshComponent = Ground->GetStaticMeshComponent();
+
+    if (!MeshComponent)
+    {
+        Ground->Destroy();
+        return;
+    }
+
+    MeshComponent->SetMobility(EComponentMobility::Movable);
+    MeshComponent->SetStaticMesh(GroundPlaneMesh);
+
+    if (GroundPlaneMaterial)
+    {
+        MeshComponent->SetMaterial(0, GroundPlaneMaterial);
+    }
+
+    const FBox GroundBounds =
+        NetworkBounds.ExpandBy(
+            FVector(GroundPlaneMarginCm, GroundPlaneMarginCm, 0.0f));
+
+    const FVector MeshSize = GroundPlaneMesh->GetBounds().BoxExtent * 2.0f;
+
+    // Taken from the mesh's own bounds so any plane or box can be used.
+    MeshComponent->SetWorldScale3D(
+        FVector(
+            GroundBounds.GetSize().X / FMath::Max(MeshSize.X, 1.0f),
+            GroundBounds.GetSize().Y / FMath::Max(MeshSize.Y, 1.0f),
+            GroundPlaneDepthCm / FMath::Max(MeshSize.Z, 1.0f)));
+
+    Ground->SetActorLocation(
+        FVector(
+            GroundBounds.GetCenter().X,
+            GroundBounds.GetCenter().Y,
+            Origin.Z - GroundPlaneDepthCm * 0.5f));
+
+    RegisterSpawnedActor(Ground);
 }
 
 bool ATrafficDemoSceneBuilder::SpawnBuildingOnPlot(
@@ -1156,6 +1222,11 @@ void ATrafficDemoSceneBuilder::BuildDemoScene()
         Rows,
         Junctions.Num(),
         Network->GetConnectionCount());
+
+    if (bSpawnGroundPlane)
+    {
+        SpawnGroundPlane(Origin, NetworkBounds);
+    }
 
     SpawnBuildings(Origin, Columns, Rows, NetworkBounds);
 
