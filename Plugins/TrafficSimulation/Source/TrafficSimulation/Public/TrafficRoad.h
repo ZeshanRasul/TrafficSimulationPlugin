@@ -78,10 +78,18 @@ public:
 
     // Replaces the spline's points wholesale and regenerates lanes and the
     // road surface from the new shape. Intended for procedural road layout.
+    //
+    // The end tangents may be given explicitly. Where one road continues into
+    // another, letting the spline choose its own start direction leaves the
+    // two meeting at an angle, and their lane endpoints then sit apart even
+    // though the centrelines touch - which a vehicle crosses by jumping.
+    // Passing the neighbour's direction makes the join continuous.
     UFUNCTION(BlueprintCallable, Category = "Traffic Road|Shape")
     void SetSplinePoints(
         const TArray<FVector>& WorldPoints,
-        bool bNewClosedLoop);
+        bool bNewClosedLoop,
+        FVector StartTangent = FVector::ZeroVector,
+        FVector EndTangent = FVector::ZeroVector);
 
     UFUNCTION(BlueprintPure, Category = "Traffic Road|Endpoints")
     FTrafficRoadEndpointHandle GetRoadEndpointHandle(

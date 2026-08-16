@@ -159,7 +159,9 @@ ATrafficDemoSceneBuilder::ATrafficDemoSceneBuilder()
 
 ATrafficRoad* ATrafficDemoSceneBuilder::SpawnRoad(
     const TArray<FVector>& WorldPoints,
-    bool bRoadClosedLoop)
+    bool bRoadClosedLoop,
+    FVector StartTangent,
+    FVector EndTangent)
 {
     UWorld* World = GetWorld();
 
@@ -185,7 +187,12 @@ ATrafficRoad* ATrafficDemoSceneBuilder::SpawnRoad(
         RoadSurfaceRollDegrees);
     Road->SetRoadSurface(RoadSurfaceMesh, RoadSurfaceMaterial);
 
-    Road->SetSplinePoints(WorldPoints, bRoadClosedLoop);
+    Road->SetSplinePoints(
+        WorldPoints,
+        bRoadClosedLoop,
+        StartTangent,
+        EndTangent);
+
     Road->SetDebugDrawEnabled(bShowNetworkDebugLines);
 
     RegisterSpawnedActor(Road);
@@ -870,7 +877,16 @@ void ATrafficDemoSceneBuilder::BuildDemoScene()
         };
 
     // Outer ends of the stub roads, which the perimeter ring will join up.
-    TArray<TPair<FVector, ATrafficRoad*>> StubEnds;
+    // The direction is kept so the ring can leave and arrive along the same
+    // line as the stub, rather than meeting it at an angle.
+    struct FStubEnd
+    {
+        FVector Location = FVector::ZeroVector;
+        FVector OutwardDirection = FVector::ForwardVector;
+        ATrafficRoad* Road = nullptr;
+    };
+
+    TArray<FStubEnd> StubEnds;
 
     // Every point any road passes through, used later to keep buildings off
     // the network. Accumulated from the real geometry rather than estimated.
@@ -951,7 +967,11 @@ void ATrafficDemoSceneBuilder::BuildDemoScene()
                 {
                     SetApproach(Column, Row, DirectionIndex, Stub);
 
-                    StubEnds.Emplace(OuterPoint, Stub);
+                    FStubEnd& StubEnd = StubEnds.AddDefaulted_GetRef();
+
+                    StubEnd.Location = OuterPoint;
+                    StubEnd.OutwardDirection = Direction;
+                    StubEnd.Road = Stub;
 
                     NetworkBounds += OuterPoint;
                 }
@@ -969,16 +989,14 @@ void ATrafficDemoSceneBuilder::BuildDemoScene()
     // Walking the stub ends by bearing around the grid centre gives their
     // order around the perimeter, for any grid size.
     StubEnds.Sort(
-        [Origin](
-            const TPair<FVector, ATrafficRoad*>& Left,
-            const TPair<FVector, ATrafficRoad*>& Right)
+        [Origin](const FStubEnd& Left, const FStubEnd& Right)
         {
             return FMath::Atan2(
-                Left.Key.Y - Origin.Y,
-                Left.Key.X - Origin.X) <
+                Left.Location.Y - Origin.Y,
+                Left.Location.X - Origin.X) <
                 FMath::Atan2(
-                    Right.Key.Y - Origin.Y,
-                    Right.Key.X - Origin.X);
+                    Right.Location.Y - Origin.Y,
+                    Right.Location.X - Origin.X);
         });
 
     for (int32 Index = 0; Index < StubEnds.Num(); ++Index)
@@ -990,8 +1008,8 @@ void ATrafficDemoSceneBuilder::BuildDemoScene()
             break;
         }
 
-        const FVector& Start = StubEnds[Index].Key;
-        const FVector& End = StubEnds[NextIndex].Key;
+        const FVector& Start = StubEnds[Index].Location;
+        const FVector& End = StubEnds[NextIndex].Location;
 
         // Bowed outward from the grid centre so the ring rounds off rather
         // than cutting straight across its own corners.
@@ -1009,9 +1027,24 @@ void ATrafficDemoSceneBuilder::BuildDemoScene()
         // outer edge of the network.
         NetworkBounds += ControlPoint;
 
+        // Leaves along the stub it starts from and arrives along the one it
+        // joins, so the ring is tangent-continuous with both. Without this
+        // the roads meet at an angle, their lane ends sit apart, and a
+        // vehicle crossing between them jumps the gap.
+        const float TangentLengthCm =
+            FVector::Dist(Start, End) * 0.5f;
+
+        const FVector LinkStartTangent =
+            StubEnds[Index].OutwardDirection * TangentLengthCm;
+
+        const FVector LinkEndTangent =
+            -StubEnds[NextIndex].OutwardDirection * TangentLengthCm;
+
         ATrafficRoad* PerimeterLink = SpawnRoad(
             { Start, ControlPoint, End },
-            false);
+            false,
+            LinkStartTangent,
+            LinkEndTangent);
 
         if (!PerimeterLink)
         {
@@ -1020,8 +1053,8 @@ void ATrafficDemoSceneBuilder::BuildDemoScene()
 
         Network->AddRoad(PerimeterLink);
 
-        Network->ConnectRoads(StubEnds[Index].Value, PerimeterLink);
-        Network->ConnectRoads(PerimeterLink, StubEnds[NextIndex].Value);
+        Network->ConnectRoads(StubEnds[Index].Road, PerimeterLink);
+        Network->ConnectRoads(PerimeterLink, StubEnds[NextIndex].Road);
     }
 
     TArray<ATrafficJunction*> Junctions;
@@ -1191,9 +1224,9 @@ void ATrafficDemoSceneBuilder::BuildDemoScene()
             for (ATrafficRoad* Road : AllRoads)
             {
                 const bool bIsStub = StubEnds.ContainsByPredicate(
-                    [Road](const TPair<FVector, ATrafficRoad*>& Entry)
+                    [Road](const FStubEnd& Entry)
                     {
-                        return Entry.Value == Road;
+                        return Entry.Road == Road;
                     });
 
                 SpawnVehiclesOnRoad(

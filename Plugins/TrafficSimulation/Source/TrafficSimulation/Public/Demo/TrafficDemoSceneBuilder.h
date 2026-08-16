@@ -51,7 +51,9 @@ public:
 private:
     ATrafficRoad* SpawnRoad(
         const TArray<FVector>& WorldPoints,
-        bool bRoadClosedLoop);
+        bool bRoadClosedLoop,
+        FVector StartTangent = FVector::ZeroVector,
+        FVector EndTangent = FVector::ZeroVector);
 
     void SpawnVehiclesOnRoad(
         ATrafficRoad* Road,

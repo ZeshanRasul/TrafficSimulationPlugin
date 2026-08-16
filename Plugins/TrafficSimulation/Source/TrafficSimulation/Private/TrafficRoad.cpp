@@ -675,7 +675,9 @@ void ATrafficRoad::SetDebugDrawEnabled(bool bNewEnabled)
 
 void ATrafficRoad::SetSplinePoints(
 	const TArray<FVector>& WorldPoints,
-	bool bNewClosedLoop)
+	bool bNewClosedLoop,
+	FVector StartTangent,
+	FVector EndTangent)
 {
 	if (!RoadSpline || WorldPoints.Num() < 2)
 	{
@@ -704,6 +706,34 @@ void ATrafficRoad::SetSplinePoints(
 	}
 
 	RoadSpline->UpdateSpline();
+
+	// Applied after the automatic tangents have been worked out, so these
+	// override them rather than being recomputed away.
+	const int32 LastPointIndex =
+		RoadSpline->GetNumberOfSplinePoints() - 1;
+
+	if (!StartTangent.IsNearlyZero() && LastPointIndex >= 0)
+	{
+		RoadSpline->SetTangentAtSplinePoint(
+			0,
+			StartTangent,
+			ESplineCoordinateSpace::World,
+			false);
+	}
+
+	if (!EndTangent.IsNearlyZero() && LastPointIndex >= 0)
+	{
+		RoadSpline->SetTangentAtSplinePoint(
+			LastPointIndex,
+			EndTangent,
+			ESplineCoordinateSpace::World,
+			false);
+	}
+
+	if (!StartTangent.IsNearlyZero() || !EndTangent.IsNearlyZero())
+	{
+		RoadSpline->UpdateSpline();
+	}
 
 	SetRoadClosedLoop(bNewClosedLoop);
 }
