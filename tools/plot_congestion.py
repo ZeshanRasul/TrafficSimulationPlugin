@@ -33,9 +33,14 @@ WIDTH = 1920
 HEIGHT = 1080
 MARGIN_LEFT = 140
 MARGIN_RIGHT = 70
-PANEL_TOP = 200
-PANEL_HEIGHT = 320
-PANEL_GAP = 120
+PANEL_TOP = 280
+PANEL_HEIGHT = 285
+PANEL_GAP = 110
+
+# The stage names get their own row between the subtitle and the first panel
+# header. They are positioned at each stage's start, so the leftmost one lands
+# in the same column as the panel title and collides if they share a band.
+STAGE_LABEL_Y = 180
 
 FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif'
 
@@ -97,16 +102,21 @@ def stage_spans(samples):
     return spans
 
 
-def nice_ceiling(value):
-    """Round up to something an axis can be labelled with."""
-    if value <= 5:
-        return 5
+def nice_axis(value):
+    """Return (ceiling, ticks) with round labels and no wasted headroom.
 
-    for step in (10, 20, 25, 50, 100, 200, 500, 1000):
-        if value <= step:
-            return step
+    Picking the next power-of-ten-ish bound leaves a peak of 63 sitting halfway
+    up a 0-100 axis, which reads as though the series never got anywhere near
+    the top. Choose the smallest round step that still fits in four intervals.
+    """
+    for step in (5, 10, 20, 25, 50, 100, 200, 250, 500, 1000):
+        if value <= step * 4:
+            ceiling = step * max(1, -(-int(value) // step))
+            return float(ceiling), [
+                float(t) for t in range(0, ceiling + 1, step)
+            ]
 
-    return int(value) + 1
+    return float(int(value) + 1), None
 
 
 def escape(text):
@@ -131,6 +141,9 @@ def build_svg(samples):
     def x_of(time_value):
         return MARGIN_LEFT + (time_value - time_min) / time_span * plot_width
 
+    stopped_max, stopped_ticks = nice_axis(
+        max(s["stopped"] for s in samples))
+
     panels = [
         {
             "title": "Network flow",
@@ -148,9 +161,9 @@ def build_svg(samples):
             "key": "stopped",
             "colour": SERIES_STOPPED,
             "top": PANEL_TOP + PANEL_HEIGHT + PANEL_GAP,
-            "max": float(nice_ceiling(max(s["stopped"] for s in samples))),
+            "max": stopped_max,
             "suffix": "",
-            "ticks": None,
+            "ticks": stopped_ticks,
         },
     ]
 
@@ -268,7 +281,7 @@ def build_svg(samples):
             )
 
         parts.append(
-            f'<text x="{x_start + 14:.1f}" y="{first_top - 62}" '
+            f'<text x="{x_start + 14:.1f}" y="{STAGE_LABEL_Y}" '
             f'font-size="26" font-weight="600" fill="{INK_SECONDARY}">'
             f'{escape(name)}</text>'
         )
