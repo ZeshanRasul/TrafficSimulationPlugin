@@ -96,12 +96,9 @@ void ATrafficCongestionExperiment::BeginPlay()
     }
 }
 
-bool ATrafficCongestionExperiment::ResolveJunction()
+bool ATrafficCongestionExperiment::ResolveJunctions()
 {
-    if (IsValid(Junction))
-    {
-        return true;
-    }
+    DrivenJunctions.Reset();
 
     if (!GetWorld())
     {
@@ -117,16 +114,34 @@ bool ATrafficCongestionExperiment::ResolveJunction()
             continue;
         }
 
-        // When no network is set, take the first junction found; otherwise
-        // only one belonging to the network under test.
-        if (!IsValid(RoadNetwork) || Candidate->RoadNetwork == RoadNetwork)
+        // With no network set, every junction in the level is fair game;
+        // otherwise only those belonging to the network under test.
+        if (IsValid(RoadNetwork) && Candidate->RoadNetwork != RoadNetwork)
         {
-            Junction = Candidate;
-            return true;
+            continue;
+        }
+
+        DrivenJunctions.Add(Candidate);
+    }
+
+    if (!IsValid(Junction) && DrivenJunctions.Num() > 0)
+    {
+        Junction = DrivenJunctions[0];
+    }
+
+    if (!bDriveAllJunctions)
+    {
+        // Single-junction mode still needs a target, so fall back to whichever
+        // junction the throughput column is sampled from.
+        DrivenJunctions.Reset();
+
+        if (IsValid(Junction))
+        {
+            DrivenJunctions.Add(Junction);
         }
     }
 
-    return false;
+    return DrivenJunctions.Num() > 0;
 }
 
 void ATrafficCongestionExperiment::StartExperiment()
@@ -142,7 +157,7 @@ void ATrafficCongestionExperiment::StartExperiment()
         return;
     }
 
-    if (!ResolveJunction())
+    if (!ResolveJunctions())
     {
         UE_LOG(
             LogTemp,
@@ -152,6 +167,13 @@ void ATrafficCongestionExperiment::StartExperiment()
 
         return;
     }
+
+    UE_LOG(
+        LogTemp,
+        Display,
+        TEXT("%s driving %d junction(s)."),
+        *GetName(),
+        DrivenJunctions.Num());
 
     Samples.Reset();
     TotalElapsedSeconds = 0.0f;
@@ -183,7 +205,7 @@ void ATrafficCongestionExperiment::StopExperiment()
 
 void ATrafficCongestionExperiment::EnterStage(int32 StageIndex)
 {
-    if (!Stages.IsValidIndex(StageIndex) || !IsValid(Junction))
+    if (!Stages.IsValidIndex(StageIndex) || DrivenJunctions.Num() == 0)
     {
         return;
     }
@@ -193,15 +215,22 @@ void ATrafficCongestionExperiment::EnterStage(int32 StageIndex)
 
     const FTrafficCongestionStage& Stage = Stages[StageIndex];
 
-    Junction->ConfigureSignals(true, Stage.Phases);
+    for (const TObjectPtr<ATrafficJunction>& Driven : DrivenJunctions)
+    {
+        if (IsValid(Driven))
+        {
+            Driven->ConfigureSignals(true, Stage.Phases);
+        }
+    }
 
     UE_LOG(
         LogTemp,
         Display,
-        TEXT("%s entering stage '%s' for %.1fs."),
+        TEXT("%s entering stage '%s' for %.1fs across %d junction(s)."),
         *GetName(),
         *Stage.Name,
-        Stage.DurationSeconds);
+        Stage.DurationSeconds,
+        DrivenJunctions.Num());
 }
 
 void ATrafficCongestionExperiment::Tick(float DeltaSeconds)

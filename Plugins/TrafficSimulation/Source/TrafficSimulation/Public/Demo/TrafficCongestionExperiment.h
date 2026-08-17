@@ -100,12 +100,21 @@ public:
         Category = "Traffic Congestion|Setup")
     TObjectPtr<ATrafficRoadNetwork> RoadNetwork;
 
-    // Leave unset to use the first junction found that belongs to RoadNetwork.
+    // The junction the per-junction throughput column is sampled from. Leave
+    // unset to use the first one found that belongs to RoadNetwork.
     UPROPERTY(
         EditInstanceOnly,
         BlueprintReadWrite,
         Category = "Traffic Congestion|Setup")
     TObjectPtr<ATrafficJunction> Junction;
+
+    // Apply each stage's signal plan to every junction in RoadNetwork rather
+    // than to Junction alone. Flow is measured across the whole network, so
+    // driving one junction of a grid dilutes the effect by the junction count
+    // and the stage means barely move. Clear this only to study a single
+    // junction in isolation, and read the throughput column rather than flow.
+    UPROPERTY(EditAnywhere, Category = "Traffic Congestion|Setup")
+    bool bDriveAllJunctions = true;
 
 private:
     void EnterStage(int32 StageIndex);
@@ -114,7 +123,11 @@ private:
 
     void DrawStatus() const;
 
-    bool ResolveJunction();
+    bool ResolveJunctions();
+
+    // Populated by ResolveJunctions; every junction a stage plan is applied to.
+    UPROPERTY(VisibleAnywhere, Category = "Traffic Congestion")
+    TArray<TObjectPtr<ATrafficJunction>> DrivenJunctions;
 
     UPROPERTY(VisibleAnywhere, Category = "Traffic Congestion")
     TObjectPtr<USceneComponent> SceneRoot;
