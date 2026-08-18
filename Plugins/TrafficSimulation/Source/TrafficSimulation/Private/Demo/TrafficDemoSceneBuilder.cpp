@@ -690,6 +690,20 @@ void ATrafficDemoSceneBuilder::EnsureBuilderId()
     }
 }
 
+void ATrafficDemoSceneBuilder::BeginPlay()
+{
+    Super::BeginPlay();
+
+    // BuildDemoScene clears first, so any copy that did survive being saved is
+    // torn down and replaced by a freshly generated one. Everything it spawns
+    // is a runtime actor in the persistent world, which World Partition never
+    // streams, so the whole scene is present the instant play begins.
+    if (bBuildOnBeginPlay)
+    {
+        BuildDemoScene();
+    }
+}
+
 void ATrafficDemoSceneBuilder::PostActorCreated()
 {
     Super::PostActorCreated();

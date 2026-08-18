@@ -26,9 +26,20 @@ class TRAFFICSIMULATION_API ATrafficDemoSceneBuilder : public AActor
 public:
     ATrafficDemoSceneBuilder();
 
+    virtual void BeginPlay() override;
     virtual void PostActorCreated() override;
     virtual void PostLoad() override;
     virtual void PostDuplicate(bool bDuplicateForPIE) override;
+
+    // Build the whole scene fresh when the game starts, rather than relying on
+    // the copy saved in the level. In a packaged build the pre-built actors
+    // come back broken: the road surface is made of transient components that
+    // are never saved, and under World Partition the saved actors stream in by
+    // cell so only the ones near the player load at all. Generating at runtime
+    // spawns everything into the persistent world in dependency order, so none
+    // of that applies. Left off by default so editor authoring is unchanged.
+    UPROPERTY(EditAnywhere, Category = "Traffic Demo")
+    bool bBuildOnBeginPlay = false;
 
     // Destroys anything from a previous build, then lays out roads, the
     // junction, the ring, and vehicles from scratch. Safe to press repeatedly

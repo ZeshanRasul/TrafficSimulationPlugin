@@ -1,4 +1,7 @@
-#if WITH_DEV_AUTOMATION_TESTS
+// WITH_DEV_AUTOMATION_TESTS alone is still 1 in a Development *game* build, so
+// it does not keep these out of a packaged build. The tests drive the editor's
+// map utilities, which only exist when UnrealEd is linked.
+#if WITH_DEV_AUTOMATION_TESTS && WITH_EDITOR
 
 #include "Misc/AutomationTest.h"
 #include "Tests/AutomationEditorCommon.h"

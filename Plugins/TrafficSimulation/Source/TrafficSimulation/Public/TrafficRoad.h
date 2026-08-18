@@ -25,6 +25,7 @@ public:
 	// Sets default values for this actor's properties
 	ATrafficRoad();
 
+	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaSeconds) override;
 	virtual void OnConstruction(const FTransform& Transform) override;
     virtual bool ShouldTickIfViewportsOnly() const override;

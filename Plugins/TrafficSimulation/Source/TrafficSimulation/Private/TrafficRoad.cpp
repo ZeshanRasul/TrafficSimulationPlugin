@@ -16,6 +16,22 @@ ATrafficRoad::ATrafficRoad()
 	RoadSpline->bDrawDebug = true;
 }
 
+void ATrafficRoad::BeginPlay()
+{
+	Super::BeginPlay();
+
+	// The carriageway is built from spline mesh components created at rebuild
+	// time. They are held in a Transient array and flagged as construction
+	// script owned, so none of them survive being saved and cooked — a
+	// packaged build would load roads with lane data but no visible surface.
+	// Junctions already rebuild themselves here; roads need the same.
+	//
+	// Only the visuals are rebuilt. GeneratedLanes is serialised and is what
+	// junctions read from in their own BeginPlay, so regenerating lanes here
+	// would make correctness depend on actor BeginPlay ordering.
+	RebuildRoadSurface();
+}
+
 void ATrafficRoad::OnConstruction(const FTransform& Transform)
 {
 	Super::OnConstruction(Transform);
